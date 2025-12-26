@@ -9,7 +9,7 @@ import (
 )
 
 func TestDecodeRGBA8_TilesLDR_KnownPixels(t *testing.T) {
-	astcData := mustReadFile(t, "../Test/Data/Tiles/ldr.astc")
+	astcData := mustReadFile(t, "testdata/fixtures/Tiles/ldr.astc")
 	pix, w, h, err := astc.DecodeRGBA8(astcData)
 	if err != nil {
 		t.Fatalf("DecodeRGBA8: %v", err)
@@ -42,7 +42,7 @@ func TestDecodeRGBA8_TilesLDR_KnownPixels(t *testing.T) {
 }
 
 func TestRoundTrip_TilesLDR(t *testing.T) {
-	wantASTC := mustReadFile(t, "../Test/Data/Tiles/ldr.astc")
+	wantASTC := mustReadFile(t, "testdata/fixtures/Tiles/ldr.astc")
 
 	pix, w, h, err := astc.DecodeRGBA8(wantASTC)
 	if err != nil {
@@ -54,12 +54,12 @@ func TestRoundTrip_TilesLDR(t *testing.T) {
 		t.Fatalf("EncodeRGBA8: %v", err)
 	}
 	if !bytes.Equal(gotASTC, wantASTC) {
-		t.Fatalf("round-trip mismatch for Test/Data/Tiles/ldr.astc")
+		t.Fatalf("round-trip mismatch for testdata/fixtures/Tiles/ldr.astc")
 	}
 }
 
 func TestDecodeRGBA8_LDR_A_1x1(t *testing.T) {
-	astcData := mustReadFile(t, "../Test/Data/LDR-A-1x1.astc")
+	astcData := mustReadFile(t, "testdata/fixtures/LDR-A-1x1.astc")
 	pix, w, h, err := astc.DecodeRGBA8(astcData)
 	if err != nil {
 		t.Fatalf("DecodeRGBA8: %v", err)
@@ -87,7 +87,7 @@ func TestDecodeRGBA8_LDR_A_1x1(t *testing.T) {
 }
 
 func TestDecodeRGBA8_TilesHDRConstBlocks(t *testing.T) {
-	astcData := mustReadFile(t, "../Test/Data/Tiles/hdr.astc")
+	astcData := mustReadFile(t, "testdata/fixtures/Tiles/hdr.astc")
 	pix, w, h, err := astc.DecodeRGBA8(astcData)
 	if err != nil {
 		t.Fatalf("DecodeRGBA8: %v", err)

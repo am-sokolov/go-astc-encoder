@@ -46,7 +46,7 @@ func decodeConstBlockRGBAF32(t *testing.T, block []byte) [4]float32 {
 }
 
 func TestDecodeRGBAF32_TilesHDR_ConstBlocksMatchPayload(t *testing.T) {
-	astcData, err := os.ReadFile("../Test/Data/Tiles/hdr.astc")
+	astcData, err := os.ReadFile("testdata/fixtures/Tiles/hdr.astc")
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}

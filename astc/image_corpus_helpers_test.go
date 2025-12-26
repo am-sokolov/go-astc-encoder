@@ -25,7 +25,7 @@ type corpusImage struct {
 func collectPNGCorpusImages(t *testing.T, imageSet string) []corpusImage {
 	t.Helper()
 
-	root := filepath.Join("..", "Test", "Images", imageSet)
+	root := filepath.Join("testdata", "images", imageSet)
 	if _, err := os.Stat(root); err != nil {
 		t.Skipf("image corpus not found (%s): %v", root, err)
 	}

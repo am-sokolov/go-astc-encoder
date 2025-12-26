@@ -18,7 +18,7 @@ func TestEnabled(t *testing.T) {
 }
 
 func TestDecodeRGBA8_MatchesPureGo_TilesLDR(t *testing.T) {
-	astcData, err := os.ReadFile("../../Test/Data/Tiles/ldr.astc")
+	astcData, err := os.ReadFile("../testdata/fixtures/Tiles/ldr.astc")
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}

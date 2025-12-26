@@ -130,7 +130,7 @@ func TestEncodeRGBA8Volume_RoundTripConst(t *testing.T) {
 }
 
 func TestDecodeRGBAF32_HDR_A_1x1_ConstBlockMatchesPayload(t *testing.T) {
-	astcData := mustReadFile(t, "../Test/Data/HDR-A-1x1.astc")
+	astcData := mustReadFile(t, "testdata/fixtures/HDR-A-1x1.astc")
 
 	h, blocks, err := astc.ParseFile(astcData)
 	if err != nil {
@@ -191,7 +191,7 @@ func TestDecodeRGBAF32_HDR_A_1x1_ConstBlockMatchesPayload(t *testing.T) {
 }
 
 func TestDecodeRGBAF32VolumeFromParsedWithProfileInto_MatchesDecode(t *testing.T) {
-	astcData := mustReadFile(t, "../Test/Data/HDR-A-1x1.astc")
+	astcData := mustReadFile(t, "testdata/fixtures/HDR-A-1x1.astc")
 
 	parsedH, blocks, err := astc.ParseFile(astcData)
 	if err != nil {
