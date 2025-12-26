@@ -29,6 +29,38 @@ func (e *Encoder) EncodeRGBA8Volume(pix []byte, width, height, depth int) ([]byt
 	return nil, errDisabled
 }
 
+type EncoderF16 struct{}
+
+func NewEncoderF16(blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality, threadCount int) (*EncoderF16, error) {
+	return nil, errDisabled
+}
+
+func (e *EncoderF16) Close() error { return errDisabled }
+
+func (e *EncoderF16) EncodeRGBAF16(pix []uint16, width, height int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func (e *EncoderF16) EncodeRGBAF16Volume(pix []uint16, width, height, depth int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+type EncoderF32 struct{}
+
+func NewEncoderF32(blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality, threadCount int) (*EncoderF32, error) {
+	return nil, errDisabled
+}
+
+func (e *EncoderF32) Close() error { return errDisabled }
+
+func (e *EncoderF32) EncodeRGBAF32(pix []float32, width, height int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func (e *EncoderF32) EncodeRGBAF32Volume(pix []float32, width, height, depth int) ([]byte, error) {
+	return nil, errDisabled
+}
+
 type Decoder struct{}
 
 func NewDecoder(blockX, blockY, blockZ int, profile astc.Profile, threadCount int) (*Decoder, error) {
@@ -58,6 +90,38 @@ func EncodeRGBA8Volume(pix []byte, width, height, depth int, blockX, blockY, blo
 }
 
 func EncodeRGBA8VolumeWithProfileAndQuality(pix []byte, width, height, depth int, blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF16(pix []uint16, width, height int, blockX, blockY int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF16WithProfileAndQuality(pix []uint16, width, height int, blockX, blockY int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF16Volume(pix []uint16, width, height, depth int, blockX, blockY, blockZ int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF16VolumeWithProfileAndQuality(pix []uint16, width, height, depth int, blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF32(pix []float32, width, height int, blockX, blockY int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF32WithProfileAndQuality(pix []float32, width, height int, blockX, blockY int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF32Volume(pix []float32, width, height, depth int, blockX, blockY, blockZ int) ([]byte, error) {
+	return nil, errDisabled
+}
+
+func EncodeRGBAF32VolumeWithProfileAndQuality(pix []float32, width, height, depth int, blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
 	return nil, errDisabled
 }
 

@@ -4,6 +4,7 @@ package native_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"testing"
 
@@ -99,5 +100,120 @@ func TestEncodeRGBA8_RoundTripConst3D(t *testing.T) {
 	}
 	if !bytes.Equal(dst, src) {
 		t.Fatalf("round-trip mismatch")
+	}
+}
+
+func TestEncodeRGBAF32_MatchesPureGoDecode_HDR2D(t *testing.T) {
+	const (
+		w      = 11
+		h      = 9
+		blockX = 6
+		blockY = 6
+	)
+
+	pix := make([]float32, w*h*4)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			off := (y*w + x) * 4
+			pix[off+0] = float32(x) * 0.25
+			pix[off+1] = float32(y) * 0.5
+			pix[off+2] = float32(x^y) * 0.1
+			pix[off+3] = 1.0 + float32(x+y)*0.01
+		}
+	}
+
+	enc, err := native.NewEncoderF32(blockX, blockY, 1, astc.ProfileHDR, astc.EncodeFast, 1)
+	if err != nil {
+		t.Fatalf("native.NewEncoderF32: %v", err)
+	}
+	defer enc.Close()
+
+	astcData, err := enc.EncodeRGBAF32(pix, w, h)
+	if err != nil {
+		t.Fatalf("enc.EncodeRGBAF32: %v", err)
+	}
+
+	goPix, goW, goH, err := astc.DecodeRGBAF32WithProfile(astcData, astc.ProfileHDR)
+	if err != nil {
+		t.Fatalf("astc.DecodeRGBAF32WithProfile: %v", err)
+	}
+	nPix, nW, nH, nD, err := native.DecodeRGBAF32VolumeWithProfile(astcData, astc.ProfileHDR)
+	if err != nil {
+		t.Fatalf("native.DecodeRGBAF32VolumeWithProfile: %v", err)
+	}
+	if nD != 1 {
+		t.Fatalf("native decode returned depth=%d; want 1", nD)
+	}
+	if goW != nW || goH != nH || goW != w || goH != h {
+		t.Fatalf("dimension mismatch: go=%dx%d native=%dx%d src=%dx%d", goW, goH, nW, nH, w, h)
+	}
+
+	for i := range goPix {
+		ga := goPix[i]
+		gb := nPix[i]
+		if math.Float32bits(ga) != math.Float32bits(gb) {
+			if math.IsNaN(float64(ga)) && math.IsNaN(float64(gb)) {
+				continue
+			}
+			t.Fatalf("float mismatch at %d: got %08x (%g) want %08x (%g)", i, math.Float32bits(ga), ga, math.Float32bits(gb), gb)
+		}
+	}
+}
+
+func TestEncodeRGBAF32_MatchesPureGoDecode_HDRVolume(t *testing.T) {
+	const (
+		w      = 5
+		h      = 3
+		d      = 4
+		blockX = 4
+		blockY = 4
+		blockZ = 3
+	)
+
+	pix := make([]float32, w*h*d*4)
+	for z := 0; z < d; z++ {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				off := ((z*h+y)*w + x) * 4
+				pix[off+0] = float32(x) * 0.25
+				pix[off+1] = float32(y) * 0.5
+				pix[off+2] = float32(z) * 1.25
+				pix[off+3] = 1.0 + float32(x+y+z)*0.01
+			}
+		}
+	}
+
+	enc, err := native.NewEncoderF32(blockX, blockY, blockZ, astc.ProfileHDR, astc.EncodeFast, 1)
+	if err != nil {
+		t.Fatalf("native.NewEncoderF32: %v", err)
+	}
+	defer enc.Close()
+
+	astcData, err := enc.EncodeRGBAF32Volume(pix, w, h, d)
+	if err != nil {
+		t.Fatalf("enc.EncodeRGBAF32Volume: %v", err)
+	}
+
+	goPix, goW, goH, goD, err := astc.DecodeRGBAF32VolumeWithProfile(astcData, astc.ProfileHDR)
+	if err != nil {
+		t.Fatalf("astc.DecodeRGBAF32VolumeWithProfile: %v", err)
+	}
+	nPix, nW, nH, nD, err := native.DecodeRGBAF32VolumeWithProfile(astcData, astc.ProfileHDR)
+	if err != nil {
+		t.Fatalf("native.DecodeRGBAF32VolumeWithProfile: %v", err)
+	}
+	if goW != nW || goH != nH || goD != nD || goW != w || goH != h || goD != d {
+		t.Fatalf("dimension mismatch: go=%dx%dx%d native=%dx%dx%d src=%dx%dx%d", goW, goH, goD, nW, nH, nD, w, h, d)
+	}
+
+	for i := range goPix {
+		ga := goPix[i]
+		gb := nPix[i]
+		if math.Float32bits(ga) != math.Float32bits(gb) {
+			if math.IsNaN(float64(ga)) && math.IsNaN(float64(gb)) {
+				continue
+			}
+			t.Fatalf("float mismatch at %d: got %08x (%g) want %08x (%g)", i, math.Float32bits(ga), ga, math.Float32bits(gb), gb)
+		}
 	}
 }

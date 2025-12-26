@@ -39,6 +39,19 @@ func EncodeConstBlockRGBA8(r, g, b, a uint8) [BlockBytes]byte {
 	)
 }
 
+// EncodeConstBlockF16 encodes an ASTC constant-color block storing FP16 RGBA values.
+//
+// This block type is only valid in HDR profiles.
+func EncodeConstBlockF16(r, g, b, a uint16) [BlockBytes]byte {
+	var out [BlockBytes]byte
+	copy(out[:8], constBlockF16Prefix[:])
+	binary.LittleEndian.PutUint16(out[8:10], r)
+	binary.LittleEndian.PutUint16(out[10:12], g)
+	binary.LittleEndian.PutUint16(out[12:14], b)
+	binary.LittleEndian.PutUint16(out[14:16], a)
+	return out
+}
+
 // DecodeConstBlockRGBA8 decodes an ASTC constant-color block into an RGBA8 value.
 //
 // This only supports UNORM16 constant blocks.
@@ -148,4 +161,62 @@ func halfToFloat32(h uint16) float32 {
 		mant32 := mant << 13
 		return math.Float32frombits((sign << 31) | (exp32 << 23) | mant32)
 	}
+}
+
+func float32ToHalf(f float32) uint16 {
+	bits := math.Float32bits(f)
+	sign := uint16((bits >> 16) & 0x8000)
+	exp := int32((bits >> 23) & 0xFF)
+	mant := bits & 0x7FFFFF
+
+	// Inf/NaN.
+	if exp == 0xFF {
+		if mant == 0 {
+			return sign | 0x7C00
+		}
+		// Quiet NaN; preserve payload bits where possible.
+		payload := uint16(mant>>13) & 0x03FF
+		if payload == 0 {
+			payload = 1
+		}
+		return sign | 0x7C00 | payload
+	}
+
+	// Convert exponent bias from 127 to 15.
+	exp = exp - 127 + 15
+
+	// Subnormals/underflow.
+	if exp <= 0 {
+		if exp < -10 {
+			// Too small -> signed zero.
+			return sign
+		}
+
+		// Convert to a subnormal half.
+		mant |= 0x800000 // implicit leading 1
+		shift := uint32(1 - exp)
+
+		// Round to nearest, ties to even.
+		roundBit := uint32(0x1000) << shift
+		mant = mant + roundBit
+		halfMant := uint16(mant >> (13 + shift))
+		return sign | halfMant
+	}
+
+	// Overflow -> inf.
+	if exp >= 0x1F {
+		return sign | 0x7C00
+	}
+
+	// Normalized number.
+	// Round to nearest, ties to even.
+	mant = mant + 0x1000
+	if mant&0x800000 != 0 {
+		mant = 0
+		exp++
+		if exp >= 0x1F {
+			return sign | 0x7C00
+		}
+	}
+	return sign | (uint16(exp) << 10) | uint16(mant>>13)
 }

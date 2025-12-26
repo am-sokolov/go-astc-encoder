@@ -304,8 +304,17 @@ func encodeCmd(args []string) {
 		os.Exit(2)
 	}
 
-	pix := make([]byte, width*height*depth*4)
-	fillPatternRGBA8(pix, width, height, depth)
+	isHDRProfile := prof == astc.ProfileHDR || prof == astc.ProfileHDRRGBLDRAlpha
+
+	var pixU8 []byte
+	var pixF32 []float32
+	if isHDRProfile {
+		pixF32 = make([]float32, width*height*depth*4)
+		fillPatternRGBAF32(pixF32, width, height, depth, prof)
+	} else {
+		pixU8 = make([]byte, width*height*depth*4)
+		fillPatternRGBA8(pixU8, width, height, depth)
+	}
 
 	var cpuFile *os.File
 	if cpuprofile != "" {
@@ -330,30 +339,52 @@ func encodeCmd(args []string) {
 	var checksum uint64
 	doChecksum := strings.ToLower(strings.TrimSpace(checksumOpt)) != "none"
 	var last []byte
-	var enc *native.Encoder
+	var encU8 *native.Encoder
+	var encF32 *native.EncoderF32
 	if impl == "native" || impl == "cgo" {
 		if !native.Enabled() {
 			fmt.Fprintln(os.Stderr, "native impl requested but not enabled (build with -tags astcenc_native and CGO_ENABLED=1)")
 			os.Exit(2)
 		}
-		enc, err = native.NewEncoder(bx, by, bz, prof, q, 0)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		if isHDRProfile {
+			encF32, err = native.NewEncoderF32(bx, by, bz, prof, q, 0)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			defer encF32.Close()
+		} else {
+			encU8, err = native.NewEncoder(bx, by, bz, prof, q, 0)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			defer encU8.Close()
 		}
-		defer enc.Close()
 	}
 	for i := 0; i < iters; i++ {
 		var out []byte
 		switch impl {
 		case "go":
-			if depth == 1 && bz == 1 {
-				out, err = astc.EncodeRGBA8WithProfileAndQuality(pix[:width*height*4], width, height, bx, by, prof, q)
+			if isHDRProfile {
+				if depth == 1 && bz == 1 {
+					out, err = astc.EncodeRGBAF32WithProfileAndQuality(pixF32[:width*height*4], width, height, bx, by, prof, q)
+				} else {
+					out, err = astc.EncodeRGBAF32VolumeWithProfileAndQuality(pixF32, width, height, depth, bx, by, bz, prof, q)
+				}
 			} else {
-				out, err = astc.EncodeRGBA8VolumeWithProfileAndQuality(pix, width, height, depth, bx, by, bz, prof, q)
+				if depth == 1 && bz == 1 {
+					out, err = astc.EncodeRGBA8WithProfileAndQuality(pixU8[:width*height*4], width, height, bx, by, prof, q)
+				} else {
+					out, err = astc.EncodeRGBA8VolumeWithProfileAndQuality(pixU8, width, height, depth, bx, by, bz, prof, q)
+				}
 			}
 		case "native", "cgo":
-			out, err = enc.EncodeRGBA8Volume(pix, width, height, depth)
+			if isHDRProfile {
+				out, err = encF32.EncodeRGBAF32Volume(pixF32, width, height, depth)
+			} else {
+				out, err = encU8.EncodeRGBA8Volume(pixU8, width, height, depth)
+			}
 		default:
 			fmt.Fprintln(os.Stderr, "invalid -impl (want go|native)")
 			os.Exit(2)
@@ -464,6 +495,34 @@ func fillPatternRGBA8(pix []byte, width, height, depth int) {
 				pix[off+1] = uint8(g)
 				pix[off+2] = uint8(b)
 				pix[off+3] = uint8(a)
+			}
+		}
+	}
+}
+
+func fillPatternRGBAF32(pix []float32, width, height, depth int, profile astc.Profile) {
+	for z := 0; z < depth; z++ {
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				off := ((z*height+y)*width + x) * 4
+				r := uint8(uint32(x*3 + y*5 + z*7))
+				g := uint8(uint32(x*11 + y*13 + z*17))
+				b := uint8(uint32(x ^ y ^ z))
+				a := uint8(255 - uint32((x*5+y*7+z*3)&0xFF))
+
+				rf := float32(r) / 255.0
+				gf := float32(g) / 255.0
+				bf := float32(b) / 255.0
+				af := float32(a) / 255.0
+
+				pix[off+0] = rf * 4.0
+				pix[off+1] = gf * 2.0
+				pix[off+2] = bf * 6.0
+				if profile == astc.ProfileHDR {
+					pix[off+3] = 1.0 + af*2.0
+				} else {
+					pix[off+3] = af
+				}
 			}
 		}
 	}

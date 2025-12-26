@@ -541,12 +541,13 @@ func sampleWeightGrid3D(blockX, blockY, blockZ, xWeights, yWeights, zWeights int
 	}
 }
 
-func buildPhysicalBlockRGBA(
+func buildPhysicalBlock(
 	mode blockModeDesc,
 	blockX, blockY, blockZ int,
 	partitionCount int,
 	partitionIndex int,
 	plane2Component int,
+	endpointFormat uint8,
 	colorQuant quantMethod,
 	endpointPquant []uint8,
 	weightPquant []uint8,
@@ -578,14 +579,14 @@ func buildPhysicalBlockRGBA(
 	startBit := 0
 	if partitionCount == 1 {
 		// Color format directly.
-		writeBits(4, 13, block[:], uint32(fmtRGBA))
+		writeBits(4, 13, block[:], uint32(endpointFormat))
 		startBit = 17
 	} else {
 		// Partition index.
 		writeBits(partitionIndexBits, 13, block[:], uint32(partitionIndex))
 
-		// Matched formats. Set baseclass = 0 and format = fmtRGBA.
-		encodedType := uint32(fmtRGBA) << 2
+		// Matched formats. Set baseclass = 0 and format = endpointFormat.
+		encodedType := uint32(endpointFormat) << 2
 		writeBits(6, 13+partitionIndexBits, block[:], encodedType)
 		startBit = 19 + partitionIndexBits
 	}
@@ -607,6 +608,19 @@ func buildPhysicalBlockRGBA(
 		return block, errors.New("astc: encoder: produced invalid block")
 	}
 	return block, nil
+}
+
+func buildPhysicalBlockRGBA(
+	mode blockModeDesc,
+	blockX, blockY, blockZ int,
+	partitionCount int,
+	partitionIndex int,
+	plane2Component int,
+	colorQuant quantMethod,
+	endpointPquant []uint8,
+	weightPquant []uint8,
+) ([BlockBytes]byte, error) {
+	return buildPhysicalBlock(mode, blockX, blockY, blockZ, partitionCount, partitionIndex, plane2Component, fmtRGBA, colorQuant, endpointPquant, weightPquant)
 }
 
 func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []byte, quality EncodeQuality) ([BlockBytes]byte, error) {

@@ -12,7 +12,7 @@ This is a Go-focused source package containing:
 
 ## Repository layout
 
-- `astc/` — pure-Go ASTC container + codec (encode RGBA8; decode RGBA8 and RGBAF32, incl. HDR profiles)
+- `astc/` — pure-Go ASTC container + codec (encode RGBA8 and RGBAF32 for HDR profiles; decode RGBA8 and RGBAF32)
 - `astc/native/` — CGO/native wrapper around upstream `astcenc` (C++ sources vendored in `astc/native/internal/astcenc/upstream/`)
 - `astc/testdata/` — regression fixtures and image corpus for Go tests
 - `cmd/astcencgo/` — minimal CLI for encoding images to `.astc` and decoding `.astc` to PNG
@@ -125,9 +125,19 @@ if err != nil { /* ... */ }
 ```
 
 Notes:
-- The encoder currently takes RGBA8 input only (no float/half-float HDR source encode API).
-- `ProfileHDR*` influences encoding decisions, but it does not “magically” turn RGBA8 input into a
-  true HDR encode.
+- For true HDR source encoding (values outside `[0,1]`) use the RGBAF32 encode APIs below.
+
+#### Encode (RGBAF32 source; HDR profiles)
+
+- `EncodeRGBAF32WithProfileAndQuality(pix, width, height, blockX, blockY, profile, quality)` —
+  encode an RGBAF32 2D image into a `.astc` file.
+- `EncodeRGBAF32VolumeWithProfileAndQuality(pix, width, height, depth, blockX, blockY, blockZ, profile, quality)` —
+  encode an RGBAF32 3D volume.
+
+Notes:
+- Supported profiles: `ProfileHDR` and `ProfileHDRRGBLDRAlpha`.
+- For `ProfileHDRRGBLDRAlpha`, the encoder treats alpha as LDR (clamped to `[0,1]`) and encodes it
+  as UNORM16 endpoints (matching the profile semantics).
 
 #### Decode (RGBA8 output; LDR profiles only)
 
@@ -198,6 +208,10 @@ through upstream `astcenc`.
 - `native.NewEncoder(blockX, blockY, blockZ, profile, quality, threadCount)` → `*native.Encoder`
   - `(*Encoder).EncodeRGBA8(...)` / `(*Encoder).EncodeRGBA8Volume(...)`
   - `(*Encoder).Close()`
+- `native.NewEncoderF32(blockX, blockY, blockZ, profile, quality, threadCount)` → `*native.EncoderF32`
+  - `(*EncoderF32).EncodeRGBAF32(...)` / `(*EncoderF32).EncodeRGBAF32Volume(...)`
+  - `(*EncoderF32).Close()`
+- `native.NewEncoderF16(...)` → `*native.EncoderF16` (half-float input, `[]uint16` IEEE 754 binary16 bits)
 - `native.NewDecoder(blockX, blockY, blockZ, profile, threadCount)` → `*native.Decoder`
   - `(*Decoder).DecodeRGBA8VolumeInto(...)`
   - `(*Decoder).DecodeRGBAF32VolumeInto(...)`
@@ -219,7 +233,9 @@ if native.Enabled() {
 
 ### Methodology
 
-- Synthetic RGBA8 input pattern (identical in pure Go and CGO/native)
+- Synthetic input pattern (identical in pure Go and CGO/native)
+  - LDR/SRGB encode: RGBA8
+  - HDR encode: RGBAF32 (values include > 1.0)
 - Size: **1024×1024×1**
 - Single-threaded: `GOMAXPROCS=1` (native backend uses the same thread count)
 - Checksum disabled: `-checksum none`
@@ -249,12 +265,12 @@ if native.Enabled() {
 
 | Block | Quality | Go (pure) | Go (CGO/native) |
 |---|---:|---:|---:|
-| 4×4 | medium   | 1.221 | 1.195 |
-| 6×6 | medium   | 1.841 | 0.724 |
-| 8×8 | medium   | 1.771 | 0.415 |
-| 4×4 | thorough | 0.352 | 0.609 |
-| 6×6 | thorough | 0.529 | 0.354 |
-| 8×8 | thorough | 0.564 | 0.238 |
+| 4×4 | medium   | 2.948 | 1.203 |
+| 6×6 | medium   | 4.149 | 0.744 |
+| 8×8 | medium   | 5.084 | 0.428 |
+| 4×4 | thorough | 1.613 | 0.614 |
+| 6×6 | thorough | 1.979 | 0.357 |
+| 8×8 | thorough | 2.297 | 0.239 |
 
 **Decode (RGBA8) — `-profile ldr`, `-checksum none`, `-iters 200`**
 
@@ -288,7 +304,6 @@ Iteration counts used: `fastest=50`, `fast=20`, `medium=10`, `thorough=3`, `very
 ### Notes on interpretation
 
 - **Encode “quality presets” are not directly comparable** between the pure-Go encoder and the upstream `astcenc` encoder. The CGO/native path matches the C++ encoder and is the right baseline for quality/perf parity.
-- Pure-Go encode accepts HDR profiles for RGBA8 input, but does not currently implement true HDR source encoding (float input / HDR endpoint modes).
 - Pure-Go RGBAF32 decode uses precomputed UNORM16/LNS→float32 tables for performance.
 - Decode outputs are bit-exact between pure Go and C++ for the exercised test corpus (`go test -tags astcenc_native ./astc`).
 

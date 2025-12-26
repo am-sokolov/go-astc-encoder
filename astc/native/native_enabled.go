@@ -261,6 +261,401 @@ func (e *Encoder) EncodeRGBA8Volume(pix []byte, width, height, depth int) ([]byt
 	return out, nil
 }
 
+// EncoderF16 wraps a reusable native astcenc compression context for RGBA float16 (IEEE binary16)
+// input.
+//
+// EncoderF16 is not safe for concurrent use.
+type EncoderF16 struct {
+	ctx unsafe.Pointer
+	img unsafe.Pointer
+
+	inBuf unsafe.Pointer
+	inCap int // bytes
+
+	blockX int
+	blockY int
+	blockZ int
+
+	profile     astc.Profile
+	quality     astc.EncodeQuality
+	threadCount int
+}
+
+func NewEncoderF16(blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality, threadCount int) (*EncoderF16, error) {
+	if blockX <= 0 || blockY <= 0 || blockZ <= 0 || blockX > 255 || blockY > 255 || blockZ > 255 {
+		return nil, errors.New("astc/native: invalid block dimensions")
+	}
+	if blockX*blockY*blockZ > 216 {
+		return nil, errors.New("astc/native: invalid block dimensions")
+	}
+	if threadCount <= 0 {
+		threadCount = runtime.GOMAXPROCS(0)
+	}
+	if threadCount < 1 {
+		threadCount = 1
+	}
+
+	cProf, err := profileToC(profile)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, code := nativecgo.ContextCreate(cProf, blockX, blockY, blockZ, qualityToFloat(quality), 0, threadCount)
+	if err := errFromCode(code, "astcenc_context_alloc"); err != nil {
+		return nil, err
+	}
+
+	img, code := nativecgo.ImageCreateF16()
+	if err := errFromCode(code, "astcenc_image_alloc"); err != nil {
+		nativecgo.ContextDestroy(ctx)
+		return nil, err
+	}
+
+	return &EncoderF16{
+		ctx:         ctx,
+		img:         img,
+		blockX:      blockX,
+		blockY:      blockY,
+		blockZ:      blockZ,
+		profile:     profile,
+		quality:     quality,
+		threadCount: threadCount,
+	}, nil
+}
+
+func (e *EncoderF16) Close() error {
+	if e.img != nil {
+		nativecgo.ImageDestroy(e.img)
+		e.img = nil
+	}
+	if e.ctx != nil {
+		nativecgo.ContextDestroy(e.ctx)
+		e.ctx = nil
+	}
+	if e.inBuf != nil {
+		nativecgo.Free(e.inBuf)
+		e.inBuf = nil
+		e.inCap = 0
+	}
+	return nil
+}
+
+func (e *EncoderF16) ensureInCap(n int) error {
+	if n <= 0 {
+		return errors.New("astc/native: invalid input buffer size")
+	}
+	if n <= e.inCap && e.inBuf != nil {
+		return nil
+	}
+	p := nativecgo.Realloc(e.inBuf, n)
+	if p == nil {
+		return errors.New("astc/native: out of memory")
+	}
+	e.inBuf = p
+	e.inCap = n
+	return nil
+}
+
+func (e *EncoderF16) EncodeRGBAF16(pix []uint16, width, height int) ([]byte, error) {
+	if e.blockZ != 1 {
+		return nil, errors.New("astc/native: EncodeRGBAF16 requires a 2D encoder (blockZ==1)")
+	}
+	return e.EncodeRGBAF16Volume(pix, width, height, 1)
+}
+
+func (e *EncoderF16) EncodeRGBAF16Volume(pix []uint16, width, height, depth int) ([]byte, error) {
+	if width <= 0 || height <= 0 || depth <= 0 {
+		return nil, errors.New("astc/native: invalid image dimensions")
+	}
+	if len(pix) != width*height*depth*4 {
+		return nil, errors.New("astc/native: invalid RGBAF16 buffer length")
+	}
+
+	h := astc.Header{
+		BlockX: uint8(e.blockX),
+		BlockY: uint8(e.blockY),
+		BlockZ: uint8(e.blockZ),
+		SizeX:  uint32(width),
+		SizeY:  uint32(height),
+		SizeZ:  uint32(depth),
+	}
+	headerBytes, err := astc.MarshalHeader(h)
+	if err != nil {
+		return nil, err
+	}
+
+	blocksX, blocksY, blocksZ, total, err := h.BlockCount()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, astc.HeaderSize+total*astc.BlockBytes)
+	copy(out[:astc.HeaderSize], headerBytes[:])
+	blocksOut := out[astc.HeaderSize:]
+
+	inBytes := len(pix) * 2
+	if err := e.ensureInCap(inBytes); err != nil {
+		return nil, err
+	}
+	copy(unsafe.Slice((*uint16)(e.inBuf), len(pix)), pix)
+
+	code := nativecgo.ImageInitF16(e.img, width, height, depth, e.inBuf)
+	if err := errFromCode(code, "astcenc_image_init"); err != nil {
+		return nil, err
+	}
+
+	totalBlocks := blocksX * blocksY * blocksZ
+	workers := e.threadCount
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > totalBlocks {
+		workers = totalBlocks
+	}
+
+	outPtr := unsafe.Pointer(&blocksOut[0])
+	outLen := len(blocksOut)
+
+	if workers == 1 || totalBlocks < defaultSmallBlockHint {
+		code := nativecgo.CompressImage(e.ctx, e.img, outPtr, outLen, 0)
+		resetCode := nativecgo.CompressReset(e.ctx)
+		if err := errFromCode(code, "astcenc_compress_image"); err != nil {
+			_ = errFromCode(resetCode, "astcenc_compress_reset")
+			return nil, err
+		}
+		if err := errFromCode(resetCode, "astcenc_compress_reset"); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	var firstErr error
+	var once sync.Once
+	for i := 0; i < workers; i++ {
+		threadIndex := i
+		go func() {
+			defer wg.Done()
+			code := nativecgo.CompressImage(e.ctx, e.img, outPtr, outLen, threadIndex)
+			if code != 0 {
+				once.Do(func() {
+					firstErr = errFromCode(code, "astcenc_compress_image")
+				})
+			}
+		}()
+	}
+	wg.Wait()
+
+	resetCode := nativecgo.CompressReset(e.ctx)
+	if firstErr != nil {
+		_ = errFromCode(resetCode, "astcenc_compress_reset")
+		return nil, firstErr
+	}
+	if err := errFromCode(resetCode, "astcenc_compress_reset"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EncoderF32 wraps a reusable native astcenc compression context for RGBA float32 input.
+//
+// EncoderF32 is not safe for concurrent use.
+type EncoderF32 struct {
+	ctx unsafe.Pointer
+	img unsafe.Pointer
+
+	inBuf unsafe.Pointer
+	inCap int // bytes
+
+	blockX int
+	blockY int
+	blockZ int
+
+	profile     astc.Profile
+	quality     astc.EncodeQuality
+	threadCount int
+}
+
+func NewEncoderF32(blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality, threadCount int) (*EncoderF32, error) {
+	if blockX <= 0 || blockY <= 0 || blockZ <= 0 || blockX > 255 || blockY > 255 || blockZ > 255 {
+		return nil, errors.New("astc/native: invalid block dimensions")
+	}
+	if blockX*blockY*blockZ > 216 {
+		return nil, errors.New("astc/native: invalid block dimensions")
+	}
+	if threadCount <= 0 {
+		threadCount = runtime.GOMAXPROCS(0)
+	}
+	if threadCount < 1 {
+		threadCount = 1
+	}
+
+	cProf, err := profileToC(profile)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, code := nativecgo.ContextCreate(cProf, blockX, blockY, blockZ, qualityToFloat(quality), 0, threadCount)
+	if err := errFromCode(code, "astcenc_context_alloc"); err != nil {
+		return nil, err
+	}
+
+	img, code := nativecgo.ImageCreateF32()
+	if err := errFromCode(code, "astcenc_image_alloc"); err != nil {
+		nativecgo.ContextDestroy(ctx)
+		return nil, err
+	}
+
+	return &EncoderF32{
+		ctx:         ctx,
+		img:         img,
+		blockX:      blockX,
+		blockY:      blockY,
+		blockZ:      blockZ,
+		profile:     profile,
+		quality:     quality,
+		threadCount: threadCount,
+	}, nil
+}
+
+func (e *EncoderF32) Close() error {
+	if e.img != nil {
+		nativecgo.ImageDestroy(e.img)
+		e.img = nil
+	}
+	if e.ctx != nil {
+		nativecgo.ContextDestroy(e.ctx)
+		e.ctx = nil
+	}
+	if e.inBuf != nil {
+		nativecgo.Free(e.inBuf)
+		e.inBuf = nil
+		e.inCap = 0
+	}
+	return nil
+}
+
+func (e *EncoderF32) ensureInCap(n int) error {
+	if n <= 0 {
+		return errors.New("astc/native: invalid input buffer size")
+	}
+	if n <= e.inCap && e.inBuf != nil {
+		return nil
+	}
+	p := nativecgo.Realloc(e.inBuf, n)
+	if p == nil {
+		return errors.New("astc/native: out of memory")
+	}
+	e.inBuf = p
+	e.inCap = n
+	return nil
+}
+
+func (e *EncoderF32) EncodeRGBAF32(pix []float32, width, height int) ([]byte, error) {
+	if e.blockZ != 1 {
+		return nil, errors.New("astc/native: EncodeRGBAF32 requires a 2D encoder (blockZ==1)")
+	}
+	return e.EncodeRGBAF32Volume(pix, width, height, 1)
+}
+
+func (e *EncoderF32) EncodeRGBAF32Volume(pix []float32, width, height, depth int) ([]byte, error) {
+	if width <= 0 || height <= 0 || depth <= 0 {
+		return nil, errors.New("astc/native: invalid image dimensions")
+	}
+	if len(pix) != width*height*depth*4 {
+		return nil, errors.New("astc/native: invalid RGBAF32 buffer length")
+	}
+
+	h := astc.Header{
+		BlockX: uint8(e.blockX),
+		BlockY: uint8(e.blockY),
+		BlockZ: uint8(e.blockZ),
+		SizeX:  uint32(width),
+		SizeY:  uint32(height),
+		SizeZ:  uint32(depth),
+	}
+	headerBytes, err := astc.MarshalHeader(h)
+	if err != nil {
+		return nil, err
+	}
+
+	blocksX, blocksY, blocksZ, total, err := h.BlockCount()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, astc.HeaderSize+total*astc.BlockBytes)
+	copy(out[:astc.HeaderSize], headerBytes[:])
+	blocksOut := out[astc.HeaderSize:]
+
+	inBytes := len(pix) * 4
+	if err := e.ensureInCap(inBytes); err != nil {
+		return nil, err
+	}
+	copy(unsafe.Slice((*float32)(e.inBuf), len(pix)), pix)
+
+	code := nativecgo.ImageInitF32(e.img, width, height, depth, e.inBuf)
+	if err := errFromCode(code, "astcenc_image_init"); err != nil {
+		return nil, err
+	}
+
+	totalBlocks := blocksX * blocksY * blocksZ
+	workers := e.threadCount
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > totalBlocks {
+		workers = totalBlocks
+	}
+
+	outPtr := unsafe.Pointer(&blocksOut[0])
+	outLen := len(blocksOut)
+
+	if workers == 1 || totalBlocks < defaultSmallBlockHint {
+		code := nativecgo.CompressImage(e.ctx, e.img, outPtr, outLen, 0)
+		resetCode := nativecgo.CompressReset(e.ctx)
+		if err := errFromCode(code, "astcenc_compress_image"); err != nil {
+			_ = errFromCode(resetCode, "astcenc_compress_reset")
+			return nil, err
+		}
+		if err := errFromCode(resetCode, "astcenc_compress_reset"); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	var firstErr error
+	var once sync.Once
+	for i := 0; i < workers; i++ {
+		threadIndex := i
+		go func() {
+			defer wg.Done()
+			code := nativecgo.CompressImage(e.ctx, e.img, outPtr, outLen, threadIndex)
+			if code != 0 {
+				once.Do(func() {
+					firstErr = errFromCode(code, "astcenc_compress_image")
+				})
+			}
+		}()
+	}
+	wg.Wait()
+
+	resetCode := nativecgo.CompressReset(e.ctx)
+	if firstErr != nil {
+		_ = errFromCode(resetCode, "astcenc_compress_reset")
+		return nil, firstErr
+	}
+	if err := errFromCode(resetCode, "astcenc_compress_reset"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Decoder wraps a reusable native astcenc decompression context.
 //
 // Decoder is not safe for concurrent use.
@@ -479,6 +874,58 @@ func EncodeRGBA8VolumeWithProfileAndQuality(pix []byte, width, height, depth int
 	}
 	defer enc.Close()
 	return enc.EncodeRGBA8Volume(pix, width, height, depth)
+}
+
+func EncodeRGBAF16(pix []uint16, width, height int, blockX, blockY int) ([]byte, error) {
+	return EncodeRGBAF16WithProfileAndQuality(pix, width, height, blockX, blockY, astc.ProfileLDR, astc.EncodeMedium)
+}
+
+func EncodeRGBAF16WithProfileAndQuality(pix []uint16, width, height int, blockX, blockY int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	enc, err := NewEncoderF16(blockX, blockY, 1, profile, quality, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer enc.Close()
+	return enc.EncodeRGBAF16(pix, width, height)
+}
+
+func EncodeRGBAF16Volume(pix []uint16, width, height, depth int, blockX, blockY, blockZ int) ([]byte, error) {
+	return EncodeRGBAF16VolumeWithProfileAndQuality(pix, width, height, depth, blockX, blockY, blockZ, astc.ProfileLDR, astc.EncodeMedium)
+}
+
+func EncodeRGBAF16VolumeWithProfileAndQuality(pix []uint16, width, height, depth int, blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	enc, err := NewEncoderF16(blockX, blockY, blockZ, profile, quality, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer enc.Close()
+	return enc.EncodeRGBAF16Volume(pix, width, height, depth)
+}
+
+func EncodeRGBAF32(pix []float32, width, height int, blockX, blockY int) ([]byte, error) {
+	return EncodeRGBAF32WithProfileAndQuality(pix, width, height, blockX, blockY, astc.ProfileLDR, astc.EncodeMedium)
+}
+
+func EncodeRGBAF32WithProfileAndQuality(pix []float32, width, height int, blockX, blockY int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	enc, err := NewEncoderF32(blockX, blockY, 1, profile, quality, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer enc.Close()
+	return enc.EncodeRGBAF32(pix, width, height)
+}
+
+func EncodeRGBAF32Volume(pix []float32, width, height, depth int, blockX, blockY, blockZ int) ([]byte, error) {
+	return EncodeRGBAF32VolumeWithProfileAndQuality(pix, width, height, depth, blockX, blockY, blockZ, astc.ProfileLDR, astc.EncodeMedium)
+}
+
+func EncodeRGBAF32VolumeWithProfileAndQuality(pix []float32, width, height, depth int, blockX, blockY, blockZ int, profile astc.Profile, quality astc.EncodeQuality) ([]byte, error) {
+	enc, err := NewEncoderF32(blockX, blockY, blockZ, profile, quality, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer enc.Close()
+	return enc.EncodeRGBAF32Volume(pix, width, height, depth)
 }
 
 func DecodeRGBA8(astcData []byte) (pix []byte, width, height int, err error) {
