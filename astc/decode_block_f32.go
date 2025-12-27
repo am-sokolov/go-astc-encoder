@@ -162,31 +162,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 					bv := e0b0 + ((db0*w1 + 32) >> 6)
 					av := e0a0 + ((da0*w1 + 32) >> 6)
 
-					if rv < 0 {
-						rv = 0
-					} else if rv > 0xFFFF {
-						rv = 0xFFFF
-					}
-					if gv < 0 {
-						gv = 0
-					} else if gv > 0xFFFF {
-						gv = 0xFFFF
-					}
-					if bv < 0 {
-						bv = 0
-					} else if bv > 0xFFFF {
-						bv = 0xFFFF
-					}
-					if av < 0 {
-						av = 0
-					} else if av > 0xFFFF {
-						av = 0xFFFF
-					}
+					if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					} else {
+						if rv < 0 {
+							rv = 0
+						} else if rv > 0xFFFF {
+							rv = 0xFFFF
+						}
+						if gv < 0 {
+							gv = 0
+						} else if gv > 0xFFFF {
+							gv = 0xFFFF
+						}
+						if bv < 0 {
+							bv = 0
+						} else if bv > 0xFFFF {
+							bv = 0xFFFF
+						}
+						if av < 0 {
+							av = 0
+						} else if av > 0xFFFF {
+							av = 0xFFFF
+						}
 
-					dst[off+0] = rgbTable[uint16(rv)]
-					dst[off+1] = rgbTable[uint16(gv)]
-					dst[off+2] = rgbTable[uint16(bv)]
-					dst[off+3] = alphaTable[uint16(av)]
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					}
 
 					off += 4
 				}
@@ -201,31 +208,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 					bv := e0b0 + ((db0*w1 + 32) >> 6)
 					av := e0a0 + ((da0*w1 + 32) >> 6)
 
-					if rv < 0 {
-						rv = 0
-					} else if rv > 0xFFFF {
-						rv = 0xFFFF
-					}
-					if gv < 0 {
-						gv = 0
-					} else if gv > 0xFFFF {
-						gv = 0xFFFF
-					}
-					if bv < 0 {
-						bv = 0
-					} else if bv > 0xFFFF {
-						bv = 0xFFFF
-					}
-					if av < 0 {
-						av = 0
-					} else if av > 0xFFFF {
-						av = 0xFFFF
-					}
+					if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					} else {
+						if rv < 0 {
+							rv = 0
+						} else if rv > 0xFFFF {
+							rv = 0xFFFF
+						}
+						if gv < 0 {
+							gv = 0
+						} else if gv > 0xFFFF {
+							gv = 0xFFFF
+						}
+						if bv < 0 {
+							bv = 0
+						} else if bv > 0xFFFF {
+							bv = 0xFFFF
+						}
+						if av < 0 {
+							av = 0
+						} else if av > 0xFFFF {
+							av = 0xFFFF
+						}
 
-					dst[off+0] = rgbTable[uint16(rv)]
-					dst[off+1] = rgbTable[uint16(gv)]
-					dst[off+2] = rgbTable[uint16(bv)]
-					dst[off+3] = alphaTable[uint16(av)]
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					}
 
 					off += 4
 				}
@@ -240,31 +254,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 					bv := e0b0 + ((db0*w2 + 32) >> 6)
 					av := e0a0 + ((da0*w1 + 32) >> 6)
 
-					if rv < 0 {
-						rv = 0
-					} else if rv > 0xFFFF {
-						rv = 0xFFFF
-					}
-					if gv < 0 {
-						gv = 0
-					} else if gv > 0xFFFF {
-						gv = 0xFFFF
-					}
-					if bv < 0 {
-						bv = 0
-					} else if bv > 0xFFFF {
-						bv = 0xFFFF
-					}
-					if av < 0 {
-						av = 0
-					} else if av > 0xFFFF {
-						av = 0xFFFF
-					}
+					if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					} else {
+						if rv < 0 {
+							rv = 0
+						} else if rv > 0xFFFF {
+							rv = 0xFFFF
+						}
+						if gv < 0 {
+							gv = 0
+						} else if gv > 0xFFFF {
+							gv = 0xFFFF
+						}
+						if bv < 0 {
+							bv = 0
+						} else if bv > 0xFFFF {
+							bv = 0xFFFF
+						}
+						if av < 0 {
+							av = 0
+						} else if av > 0xFFFF {
+							av = 0xFFFF
+						}
 
-					dst[off+0] = rgbTable[uint16(rv)]
-					dst[off+1] = rgbTable[uint16(gv)]
-					dst[off+2] = rgbTable[uint16(bv)]
-					dst[off+3] = alphaTable[uint16(av)]
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					}
 
 					off += 4
 				}
@@ -279,31 +300,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 					bv := e0b0 + ((db0*w1 + 32) >> 6)
 					av := e0a0 + ((da0*w2 + 32) >> 6)
 
-					if rv < 0 {
-						rv = 0
-					} else if rv > 0xFFFF {
-						rv = 0xFFFF
-					}
-					if gv < 0 {
-						gv = 0
-					} else if gv > 0xFFFF {
-						gv = 0xFFFF
-					}
-					if bv < 0 {
-						bv = 0
-					} else if bv > 0xFFFF {
-						bv = 0xFFFF
-					}
-					if av < 0 {
-						av = 0
-					} else if av > 0xFFFF {
-						av = 0xFFFF
-					}
+					if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					} else {
+						if rv < 0 {
+							rv = 0
+						} else if rv > 0xFFFF {
+							rv = 0xFFFF
+						}
+						if gv < 0 {
+							gv = 0
+						} else if gv > 0xFFFF {
+							gv = 0xFFFF
+						}
+						if bv < 0 {
+							bv = 0
+						} else if bv > 0xFFFF {
+							bv = 0xFFFF
+						}
+						if av < 0 {
+							av = 0
+						} else if av > 0xFFFF {
+							av = 0xFFFF
+						}
 
-					dst[off+0] = rgbTable[uint16(rv)]
-					dst[off+1] = rgbTable[uint16(gv)]
-					dst[off+2] = rgbTable[uint16(bv)]
-					dst[off+3] = alphaTable[uint16(av)]
+						dst[off+0] = rgbTable[uint16(rv)]
+						dst[off+1] = rgbTable[uint16(gv)]
+						dst[off+2] = rgbTable[uint16(bv)]
+						dst[off+3] = alphaTable[uint16(av)]
+					}
 
 					off += 4
 				}
@@ -397,31 +425,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := e0b0 + ((db0*w1 + 32) >> 6)
 				av := e0a0 + ((da0*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -449,31 +484,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := e0b0 + ((db0*w1 + 32) >> 6)
 				av := e0a0 + ((da0*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -501,31 +543,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := e0b0 + ((db0*w2 + 32) >> 6)
 				av := e0a0 + ((da0*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -553,31 +602,38 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := e0b0 + ((db0*w1 + 32) >> 6)
 				av := e0a0 + ((da0*w2 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -611,34 +667,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := ep0b[part] + ((epdb[part]*w + 32) >> 6)
 				av := ep0a[part] + ((epda[part]*w + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
-
 				rgbTable := rgbTableByPart[part]
 				alphaTable := alphaTableByPart[part]
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
+
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -660,34 +723,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 				av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
-
 				rgbTable := rgbTableByPart[part]
 				alphaTable := alphaTableByPart[part]
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
+
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -703,34 +773,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 				av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
-
 				rgbTable := rgbTableByPart[part]
 				alphaTable := alphaTableByPart[part]
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
+
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -746,34 +823,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := ep0b[part] + ((epdb[part]*w2 + 32) >> 6)
 				av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
-
 				rgbTable := rgbTableByPart[part]
 				alphaTable := alphaTableByPart[part]
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
+
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -789,34 +873,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 				bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 				av := ep0a[part] + ((epda[part]*w2 + 32) >> 6)
 
-				if rv < 0 {
-					rv = 0
-				} else if rv > 0xFFFF {
-					rv = 0xFFFF
-				}
-				if gv < 0 {
-					gv = 0
-				} else if gv > 0xFFFF {
-					gv = 0xFFFF
-				}
-				if bv < 0 {
-					bv = 0
-				} else if bv > 0xFFFF {
-					bv = 0xFFFF
-				}
-				if av < 0 {
-					av = 0
-				} else if av > 0xFFFF {
-					av = 0xFFFF
-				}
-
 				rgbTable := rgbTableByPart[part]
 				alphaTable := alphaTableByPart[part]
 
-				dst[off+0] = rgbTable[uint16(rv)]
-				dst[off+1] = rgbTable[uint16(gv)]
-				dst[off+2] = rgbTable[uint16(bv)]
-				dst[off+3] = alphaTable[uint16(av)]
+				if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				} else {
+					if rv < 0 {
+						rv = 0
+					} else if rv > 0xFFFF {
+						rv = 0xFFFF
+					}
+					if gv < 0 {
+						gv = 0
+					} else if gv > 0xFFFF {
+						gv = 0xFFFF
+					}
+					if bv < 0 {
+						bv = 0
+					} else if bv > 0xFFFF {
+						bv = 0xFFFF
+					}
+					if av < 0 {
+						av = 0
+					} else if av > 0xFFFF {
+						av = 0xFFFF
+					}
+
+					dst[off+0] = rgbTable[uint16(rv)]
+					dst[off+1] = rgbTable[uint16(gv)]
+					dst[off+2] = rgbTable[uint16(bv)]
+					dst[off+3] = alphaTable[uint16(av)]
+				}
 
 				off += 4
 			}
@@ -848,34 +939,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 			bv := ep0b[part] + ((epdb[part]*w + 32) >> 6)
 			av := ep0a[part] + ((epda[part]*w + 32) >> 6)
 
-			if rv < 0 {
-				rv = 0
-			} else if rv > 0xFFFF {
-				rv = 0xFFFF
-			}
-			if gv < 0 {
-				gv = 0
-			} else if gv > 0xFFFF {
-				gv = 0xFFFF
-			}
-			if bv < 0 {
-				bv = 0
-			} else if bv > 0xFFFF {
-				bv = 0xFFFF
-			}
-			if av < 0 {
-				av = 0
-			} else if av > 0xFFFF {
-				av = 0xFFFF
-			}
-
 			rgbTable := rgbTableByPart[part]
 			alphaTable := alphaTableByPart[part]
 
-			dst[off+0] = rgbTable[uint16(rv)]
-			dst[off+1] = rgbTable[uint16(gv)]
-			dst[off+2] = rgbTable[uint16(bv)]
-			dst[off+3] = alphaTable[uint16(av)]
+			if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			} else {
+				if rv < 0 {
+					rv = 0
+				} else if rv > 0xFFFF {
+					rv = 0xFFFF
+				}
+				if gv < 0 {
+					gv = 0
+				} else if gv > 0xFFFF {
+					gv = 0xFFFF
+				}
+				if bv < 0 {
+					bv = 0
+				} else if bv > 0xFFFF {
+					bv = 0xFFFF
+				}
+				if av < 0 {
+					av = 0
+				} else if av > 0xFFFF {
+					av = 0xFFFF
+				}
+
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			}
 
 			off += 4
 		}
@@ -909,34 +1007,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 			bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 			av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-			if rv < 0 {
-				rv = 0
-			} else if rv > 0xFFFF {
-				rv = 0xFFFF
-			}
-			if gv < 0 {
-				gv = 0
-			} else if gv > 0xFFFF {
-				gv = 0xFFFF
-			}
-			if bv < 0 {
-				bv = 0
-			} else if bv > 0xFFFF {
-				bv = 0xFFFF
-			}
-			if av < 0 {
-				av = 0
-			} else if av > 0xFFFF {
-				av = 0xFFFF
-			}
-
 			rgbTable := rgbTableByPart[part]
 			alphaTable := alphaTableByPart[part]
 
-			dst[off+0] = rgbTable[uint16(rv)]
-			dst[off+1] = rgbTable[uint16(gv)]
-			dst[off+2] = rgbTable[uint16(bv)]
-			dst[off+3] = alphaTable[uint16(av)]
+			if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			} else {
+				if rv < 0 {
+					rv = 0
+				} else if rv > 0xFFFF {
+					rv = 0xFFFF
+				}
+				if gv < 0 {
+					gv = 0
+				} else if gv > 0xFFFF {
+					gv = 0xFFFF
+				}
+				if bv < 0 {
+					bv = 0
+				} else if bv > 0xFFFF {
+					bv = 0xFFFF
+				}
+				if av < 0 {
+					av = 0
+				} else if av > 0xFFFF {
+					av = 0xFFFF
+				}
+
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			}
 
 			off += 4
 		}
@@ -965,34 +1070,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 			bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 			av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-			if rv < 0 {
-				rv = 0
-			} else if rv > 0xFFFF {
-				rv = 0xFFFF
-			}
-			if gv < 0 {
-				gv = 0
-			} else if gv > 0xFFFF {
-				gv = 0xFFFF
-			}
-			if bv < 0 {
-				bv = 0
-			} else if bv > 0xFFFF {
-				bv = 0xFFFF
-			}
-			if av < 0 {
-				av = 0
-			} else if av > 0xFFFF {
-				av = 0xFFFF
-			}
-
 			rgbTable := rgbTableByPart[part]
 			alphaTable := alphaTableByPart[part]
 
-			dst[off+0] = rgbTable[uint16(rv)]
-			dst[off+1] = rgbTable[uint16(gv)]
-			dst[off+2] = rgbTable[uint16(bv)]
-			dst[off+3] = alphaTable[uint16(av)]
+			if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			} else {
+				if rv < 0 {
+					rv = 0
+				} else if rv > 0xFFFF {
+					rv = 0xFFFF
+				}
+				if gv < 0 {
+					gv = 0
+				} else if gv > 0xFFFF {
+					gv = 0xFFFF
+				}
+				if bv < 0 {
+					bv = 0
+				} else if bv > 0xFFFF {
+					bv = 0xFFFF
+				}
+				if av < 0 {
+					av = 0
+				} else if av > 0xFFFF {
+					av = 0xFFFF
+				}
+
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			}
 
 			off += 4
 		}
@@ -1021,34 +1133,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 			bv := ep0b[part] + ((epdb[part]*w2 + 32) >> 6)
 			av := ep0a[part] + ((epda[part]*w1 + 32) >> 6)
 
-			if rv < 0 {
-				rv = 0
-			} else if rv > 0xFFFF {
-				rv = 0xFFFF
-			}
-			if gv < 0 {
-				gv = 0
-			} else if gv > 0xFFFF {
-				gv = 0xFFFF
-			}
-			if bv < 0 {
-				bv = 0
-			} else if bv > 0xFFFF {
-				bv = 0xFFFF
-			}
-			if av < 0 {
-				av = 0
-			} else if av > 0xFFFF {
-				av = 0xFFFF
-			}
-
 			rgbTable := rgbTableByPart[part]
 			alphaTable := alphaTableByPart[part]
 
-			dst[off+0] = rgbTable[uint16(rv)]
-			dst[off+1] = rgbTable[uint16(gv)]
-			dst[off+2] = rgbTable[uint16(bv)]
-			dst[off+3] = alphaTable[uint16(av)]
+			if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			} else {
+				if rv < 0 {
+					rv = 0
+				} else if rv > 0xFFFF {
+					rv = 0xFFFF
+				}
+				if gv < 0 {
+					gv = 0
+				} else if gv > 0xFFFF {
+					gv = 0xFFFF
+				}
+				if bv < 0 {
+					bv = 0
+				} else if bv > 0xFFFF {
+					bv = 0xFFFF
+				}
+				if av < 0 {
+					av = 0
+				} else if av > 0xFFFF {
+					av = 0xFFFF
+				}
+
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			}
 
 			off += 4
 		}
@@ -1077,34 +1196,41 @@ func decodeBlockToRGBAF32(profile Profile, ctx *decodeContext, block []byte, out
 			bv := ep0b[part] + ((epdb[part]*w1 + 32) >> 6)
 			av := ep0a[part] + ((epda[part]*w2 + 32) >> 6)
 
-			if rv < 0 {
-				rv = 0
-			} else if rv > 0xFFFF {
-				rv = 0xFFFF
-			}
-			if gv < 0 {
-				gv = 0
-			} else if gv > 0xFFFF {
-				gv = 0xFFFF
-			}
-			if bv < 0 {
-				bv = 0
-			} else if bv > 0xFFFF {
-				bv = 0xFFFF
-			}
-			if av < 0 {
-				av = 0
-			} else if av > 0xFFFF {
-				av = 0xFFFF
-			}
-
 			rgbTable := rgbTableByPart[part]
 			alphaTable := alphaTableByPart[part]
 
-			dst[off+0] = rgbTable[uint16(rv)]
-			dst[off+1] = rgbTable[uint16(gv)]
-			dst[off+2] = rgbTable[uint16(bv)]
-			dst[off+3] = alphaTable[uint16(av)]
+			if (uint32(rv)|uint32(gv)|uint32(bv)|uint32(av))&^0xFFFF == 0 {
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			} else {
+				if rv < 0 {
+					rv = 0
+				} else if rv > 0xFFFF {
+					rv = 0xFFFF
+				}
+				if gv < 0 {
+					gv = 0
+				} else if gv > 0xFFFF {
+					gv = 0xFFFF
+				}
+				if bv < 0 {
+					bv = 0
+				} else if bv > 0xFFFF {
+					bv = 0xFFFF
+				}
+				if av < 0 {
+					av = 0
+				} else if av > 0xFFFF {
+					av = 0xFFFF
+				}
+
+				dst[off+0] = rgbTable[uint16(rv)]
+				dst[off+1] = rgbTable[uint16(gv)]
+				dst[off+2] = rgbTable[uint16(bv)]
+				dst[off+3] = alphaTable[uint16(av)]
+			}
 
 			off += 4
 		}

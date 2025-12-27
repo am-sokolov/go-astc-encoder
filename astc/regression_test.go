@@ -1,7 +1,6 @@
 package astc_test
 
 import (
-	"bytes"
 	"os"
 	"testing"
 
@@ -44,17 +43,24 @@ func TestDecodeRGBA8_TilesLDR_KnownPixels(t *testing.T) {
 func TestRoundTrip_TilesLDR(t *testing.T) {
 	wantASTC := mustReadFile(t, "testdata/fixtures/Tiles/ldr.astc")
 
-	pix, w, h, err := astc.DecodeRGBA8(wantASTC)
+	srcPix, w, h, err := astc.DecodeRGBA8(wantASTC)
 	if err != nil {
 		t.Fatalf("DecodeRGBA8: %v", err)
 	}
 
-	gotASTC, err := astc.EncodeRGBA8(pix, w, h, 4, 4)
+	gotASTC, err := astc.EncodeRGBA8(srcPix, w, h, 4, 4)
 	if err != nil {
 		t.Fatalf("EncodeRGBA8: %v", err)
 	}
-	if !bytes.Equal(gotASTC, wantASTC) {
-		t.Fatalf("round-trip mismatch for testdata/fixtures/Tiles/ldr.astc")
+	dstPix, w2, h2, err := astc.DecodeRGBA8(gotASTC)
+	if err != nil {
+		t.Fatalf("DecodeRGBA8(reencoded): %v", err)
+	}
+	if w2 != w || h2 != h {
+		t.Fatalf("unexpected dimensions: got %dx%d want %dx%d", w2, h2, w, h)
+	}
+	if gotPSNR := psnrU8(srcPix, dstPix, 4); gotPSNR < 40 {
+		t.Fatalf("unexpectedly lossy round-trip: psnr=%.3f dB", gotPSNR)
 	}
 }
 

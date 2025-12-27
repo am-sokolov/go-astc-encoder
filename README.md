@@ -188,6 +188,83 @@ err = astc.DecodeRGBAF32VolumeFromParsedWithProfileInto(astc.ProfileHDR, h, bloc
 - `DecodeConstBlockRGBA8(block)` — decode constant blocks to RGBA8 (UNORM16 and FP16 constant
   blocks; FP16 values clamp to `[0,1]` when converting to 8-bit).
 
+#### Advanced: `Config` / `Context` API (astcenc-like)
+
+If you need **upstream-like flags, swizzles, progress callbacks, or block introspection**, use the
+lower-level API modeled after `astcenc`:
+
+- `ConfigInit(profile, blockX, blockY, blockZ, quality, flags)` → `Config` (quality is `0..100`).
+- `ContextAlloc(&cfg, threadCount)` → `*Context`
+- `(*Context).CompressImage(img, swizzle, outBlocks, threadIndex)` — writes **block payloads only**
+  (no `.astc` header).
+- `(*Context).DecompressImage(blocks, imgOut, swizzle, threadIndex)`
+  - Unlike compression, decompression swizzles may use `SwzZ` (see below).
+- `(*Context).GetBlockInfo(block)` — inspect mode/partitions/endpoints/weights (useful for parity
+  debugging).
+
+Useful `Config` fields:
+
+- `Flags` — enable upstream `ASTCENC_FLG_*` behaviors (`FlagMapNormal`, `FlagUseAlphaWeight`, ...).
+- `CWRWeight/CWGWeight/CWBWeight/CWAWeight` — per-channel error weights.
+- `AScaleRadius` — alpha-scale RDO (for 2D blocks, blocks whose filtered alpha footprint is fully
+  transparent are emitted as constant-zero blocks; matches upstream).
+- `ProgressCallback func(progress float32)` — progress callback (`0..100`), throttled to ~1% or
+  4096 blocks (whichever is larger), always emitting `100` at completion (matches upstream).
+
+Errors:
+
+- `ErrorCode`, `ErrorString(code)` — upstream-style error codes (`astcenc_get_error_string` parity).
+- `ErrorCodeOf(err)` — extract an `ErrorCode` from a returned error.
+
+Swizzles:
+
+- Compression swizzle selectors: `Swz{R,G,B,A,0,1}` (`SwzZ` is invalid for compression, matching
+  upstream).
+- Decompression swizzles additionally allow `SwzZ` which reconstructs a normal-map **Z** component
+  from **R and A** (matching upstream).
+
+Normal maps (`FlagMapNormal`):
+
+- Upstream normal-map mode stores normals as a **2-component X+Y** map. It expects an input swizzle
+  like `rrrg` (or `gggr`) so the data can be encoded using **Luminance+Alpha** blocks.
+- Pure-Go `FlagMapNormal` encoding uses **Luminance+Alpha endpoints** (endpoint mode `4`) and an
+  **angular normal error metric** during block search; it disables partition preselection to avoid
+  missing the best partition under the angular metric.
+
+Example: encode a tangent-space normal map (X in R, Y in G) using `rrrg`, then decode to XYZ using
+`SwzZ`:
+
+```go
+cfg, _ := astc.ConfigInit(astc.ProfileLDR, 6, 6, 1, 60, astc.FlagMapNormal)
+ctx, _ := astc.ContextAlloc(&cfg, 1)
+defer ctx.Close()
+
+img := &astc.Image{DimX: w, DimY: h, DimZ: 1, DataType: astc.TypeU8, DataU8: rgba}
+blocks := make([]byte, ((w+5)/6)*((h+5)/6)*astc.BlockBytes)
+
+// Store X in RGB (luma), Y in A.
+encSwz := astc.Swizzle{R: astc.SwzR, G: astc.SwzR, B: astc.SwzR, A: astc.SwzG} // rrrg
+_ = ctx.CompressImage(img, encSwz, blocks, 0)
+
+// Reconstruct Z into B, output XYZ in RGB, and set A=1.
+out := make([]byte, w*h*4)
+imgOut := &astc.Image{DimX: w, DimY: h, DimZ: 1, DataType: astc.TypeU8, DataU8: out}
+decSwz := astc.Swizzle{R: astc.SwzR, G: astc.SwzA, B: astc.SwzZ, A: astc.Swz1}
+_ = ctx.DecompressImage(blocks, imgOut, decSwz, 0)
+```
+
+RGBM (`FlagMapRGBM`):
+
+- Use this when your input texture is **RGBM-encoded** (HDR color stored as `RGB * M * RGBMMScale`).
+- `cfg.RGBMMScale` defaults to `5.0` for `FlagMapRGBM`; set it to match your RGBM encoding scheme
+  before calling `ContextAlloc`.
+
+Decode rounding (`FlagUseDecodeUNORM8`):
+
+- Enables encoder heuristics assuming the final decode uses `decode_unorm8` rounding (matches
+  upstream). This can improve quality when the output is ultimately stored as 8-bit.
+- `ProfileLDRSRGB` always assumes `decode_unorm8` for error evaluation (matches upstream).
+
 ### Package `astc/native` (CGO → upstream C++)
 
 Build-gated: enable with `-tags astcenc_native` and `CGO_ENABLED=1` (`native.Enabled()` reports
@@ -229,6 +306,22 @@ if native.Enabled() {
 }
 ```
 
+#### Raw `astcenc` API (native `Config` / `Context`)
+
+In addition to the convenience `Encoder`/`Decoder` wrappers, `astc/native` also exposes a
+lower-level `astcenc`-style API which mirrors the pure-Go `Config`/`Context` surface and calls
+directly into upstream `astcenc`:
+
+- `native.ConfigInit(profile, blockX, blockY, blockZ, quality, flags)` → `native.Config`
+- `native.ContextAlloc(&cfg, threadCount)` → `*native.Context`
+- `(*native.Context).CompressImage(...)`, `(*native.Context).DecompressImage(...)`
+- `(*native.Context).GetBlockInfo(...)`
+
+This raw API is used by the parity tests to compare pure-Go behavior to upstream, including:
+
+- `SwzZ` decompression behavior.
+- `FlagMapNormal` encode quality (angular error) relative to upstream.
+
 ## Benchmarks (Go vs CGO/native)
 
 ### Methodology
@@ -265,12 +358,23 @@ if native.Enabled() {
 
 | Block | Quality | Go (pure) | Go (CGO/native) |
 |---|---:|---:|---:|
-| 4×4 | medium   | 2.948 | 1.203 |
-| 6×6 | medium   | 4.149 | 0.744 |
-| 8×8 | medium   | 5.084 | 0.428 |
-| 4×4 | thorough | 1.613 | 0.614 |
-| 6×6 | thorough | 1.979 | 0.357 |
-| 8×8 | thorough | 2.297 | 0.239 |
+| 4×4 | medium   | 0.654 | 1.179 |
+| 6×6 | medium   | 1.217 | 0.741 |
+| 8×8 | medium   | 1.391 | 0.435 |
+| 4×4 | thorough | 0.116 | 0.618 |
+| 6×6 | thorough | 0.233 | 0.353 |
+| 8×8 | thorough | 0.312 | 0.238 |
+
+**Encode — `-profile hdr-rgb-ldr-a`, `-checksum none`**
+
+| Block | Quality | Go (pure) | Go (CGO/native) |
+|---|---:|---:|---:|
+| 4×4 | medium   | 0.681 | 0.892 |
+| 6×6 | medium   | 1.246 | 0.567 |
+| 8×8 | medium   | 1.422 | 0.423 |
+| 4×4 | thorough | 0.126 | 0.481 |
+| 6×6 | thorough | 0.241 | 0.307 |
+| 8×8 | thorough | 0.326 | 0.236 |
 
 **Decode (RGBA8) — `-profile ldr`, `-checksum none`, `-iters 200`**
 
@@ -284,9 +388,9 @@ if native.Enabled() {
 
 | Block | Go (pure) | Go (CGO/native) |
 |---|---:|---:|
-| 4×4 | 86.540 | 107.314 |
-| 6×6 | 115.395 | 137.785 |
-| 8×8 | 134.567 | 168.292 |
+| 4×4 | 91.162 | 111.053 |
+| 6×6 | 121.411 | 139.529 |
+| 8×8 | 146.132 | 169.509 |
 
 **Encode preset sweep (6×6 only) — 512×512×1, `-profile ldr`, `-checksum none`**
 
@@ -335,4 +439,12 @@ HDR example (float output):
 ./astcbenchgo_native encode -w 1024 -h 1024 -block 6x6 -profile hdr -quality medium -iters 1 -checksum none -out /tmp/bench_hdr.astc -impl native
 GOMAXPROCS=1 ./astcbenchgo        decode -in /tmp/bench_hdr.astc -profile hdr -iters 200 -out f32 -checksum none
 GOMAXPROCS=1 ./astcbenchgo_native decode -in /tmp/bench_hdr.astc -profile hdr -iters 200 -out f32 -checksum none -impl native
+```
+
+HDR RGB + LDR alpha example (float output):
+
+```sh
+./astcbenchgo_native encode -w 1024 -h 1024 -block 6x6 -profile hdr-rgb-ldr-a -quality medium -iters 1 -checksum none -out /tmp/bench_hdr_rgb_ldr_a.astc -impl native
+GOMAXPROCS=1 ./astcbenchgo        decode -in /tmp/bench_hdr_rgb_ldr_a.astc -profile hdr-rgb-ldr-a -iters 200 -out f32 -checksum none
+GOMAXPROCS=1 ./astcbenchgo_native decode -in /tmp/bench_hdr_rgb_ldr_a.astc -profile hdr-rgb-ldr-a -iters 200 -out f32 -checksum none -impl native
 ```

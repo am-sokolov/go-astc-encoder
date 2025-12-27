@@ -201,6 +201,7 @@ var weightQuantizeScrambledLUT [int(quant32) + 1][65]uint8
 var (
 	endpointExpandLDR  [256]int32
 	endpointExpandSRGB [256]int32
+	normalXYZLUT       [256][256][3]float32
 )
 
 func init() {
@@ -251,6 +252,26 @@ func init() {
 			weightQuantizeScrambledLUT[q][u] = weightScrambleMap[q][best]
 		}
 	}
+
+	// Precompute normalized vectors for normal-map angular error evaluation (MAP_NORMAL mode).
+	for r := 0; r < 256; r++ {
+		x := float32(r)*(2.0/255.0) - 1.0
+		for a := 0; a < 256; a++ {
+			y := float32(a)*(2.0/255.0) - 1.0
+			z2 := 1.0 - x*x - y*y
+			if z2 < 0 {
+				z2 = 0
+			}
+			z := float32(math.Sqrt(float64(z2)))
+			n2 := x*x + y*y + z*z
+			if n2 > 0 {
+				invN := float32(1.0 / math.Sqrt(float64(n2)))
+				normalXYZLUT[r][a][0] = x * invN
+				normalXYZLUT[r][a][1] = y * invN
+				normalXYZLUT[r][a][2] = z * invN
+			}
+		}
+	}
 }
 
 func weightQuantizeScrambled(q quantMethod, u int) uint8 {
@@ -276,6 +297,18 @@ func blockErrorRGBA8(a, b []byte) uint64 {
 		sum += uint64(d * d)
 	}
 	return sum
+}
+
+func normalMapAngularError(origR, origA, decR, decA uint8) float64 {
+	ref := normalXYZLUT[origR][origA]
+	dec := normalXYZLUT[decR][decA]
+	dot := float64(ref[0]*dec[0] + ref[1]*dec[1] + ref[2]*dec[2])
+	if dot > 1 {
+		dot = 1
+	} else if dot < -1 {
+		dot = -1
+	}
+	return 1.0 - dot
 }
 
 func extractBlockRGBA8(pix []byte, width, height, x0, y0, blockX, blockY int, dst []byte) {
@@ -623,7 +656,7 @@ func buildPhysicalBlockRGBA(
 	return buildPhysicalBlock(mode, blockX, blockY, blockZ, partitionCount, partitionIndex, plane2Component, fmtRGBA, colorQuant, endpointPquant, weightPquant)
 }
 
-func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []byte, quality EncodeQuality) ([BlockBytes]byte, error) {
+func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []byte, quality EncodeQuality, channelWeight [4]float32, flags Flags, rgbmScale float32, tuneOverride *encoderTuning) ([BlockBytes]byte, error) {
 	if profile != ProfileLDR && profile != ProfileLDRSRGB && profile != ProfileHDRRGBLDRAlpha && profile != ProfileHDR {
 		return [BlockBytes]byte{}, errors.New("astc: invalid profile")
 	}
@@ -634,6 +667,19 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 
 	texelCount := blockX * blockY * blockZ
 
+	normalMap := (flags & FlagMapNormal) != 0
+	rgbmMap := (flags & FlagMapRGBM) != 0
+	useU8 := (flags&FlagUseDecodeUNORM8) != 0 || profile == ProfileLDRSRGB
+	if rgbmMap && rgbmScale < 1 {
+		rgbmScale = 1
+	}
+	endpointFormat := uint8(fmtRGBA)
+	endpointStride := 8
+	if normalMap {
+		endpointFormat = fmtLuminanceAlpha
+		endpointStride = 4
+	}
+
 	// Candidate list.
 	modes := validBlockModes(blockX, blockY, blockZ)
 	if len(modes) == 0 {
@@ -643,6 +689,42 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 	}
 
 	tune := encoderTuningFor(quality, texelCount)
+	if tuneOverride != nil {
+		tune = *tuneOverride
+	}
+	if tuneOverride == nil && normalMap && quality >= EncodeMedium {
+		// The upstream encoder increases effort and partitioning for normal maps because L+A blocks
+		// need fewer endpoint bits. Our medium preset is intentionally conservative to preserve
+		// existing regression fixtures for generic color data, so bump limits here to better match
+		// reference output for ASTCENC_FLG_MAP_NORMAL.
+		if tune.modeLimit < 94 {
+			tune.modeLimit = 94
+		}
+		if tune.maxPartitionCount < 4 {
+			tune.maxPartitionCount = 4
+		}
+		if tune.partitionIndexLimit[2] < 82 {
+			tune.partitionIndexLimit[2] = 82
+		}
+		if tune.partitionIndexLimit[3] < 60 {
+			tune.partitionIndexLimit[3] = 60
+		}
+		if tune.partitionIndexLimit[4] < 30 {
+			tune.partitionIndexLimit[4] = 30
+		}
+		if tune.partitionCandidateLimit[2] < 3 {
+			tune.partitionCandidateLimit[2] = 3
+		}
+		if tune.partitionCandidateLimit[3] < 2 {
+			tune.partitionCandidateLimit[3] = 2
+		}
+		if tune.partitionCandidateLimit[4] < 2 {
+			tune.partitionCandidateLimit[4] = 2
+		}
+	} else if tuneOverride == nil && normalMap && tune.maxPartitionCount < 4 {
+		// Lower presets: still allow a little more partitioning headroom.
+		tune.maxPartitionCount++
+	}
 	modeLimit := tune.modeLimit
 	if modeLimit <= 0 || modeLimit > len(modes) {
 		modeLimit = len(modes)
@@ -681,7 +763,11 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 		b := texels[off+2]
 		a := texels[off+3]
 
-		texelLuma[t] = int(r) + int(g) + int(b)
+		l := int(r) + int(g) + int(b)
+		if rgbmMap {
+			l *= int(a)
+		}
+		texelLuma[t] = l
 		texelAlpha[t] = int(a)
 
 		if a < alphaMin {
@@ -696,6 +782,9 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 	allowDualPlane := alphaVary
 	if allowDualPlane && quality >= EncodeThorough {
 		thresh := tune.dualPlaneCorrelationThreshold
+		if normalMap && thresh < 0.99 {
+			thresh = 0.99
+		}
 		if thresh > 0 {
 			if alphaRGBAbsCorrelation(texels) >= float64(thresh) {
 				allowDualPlane = false
@@ -786,7 +875,13 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 		}
 	}
 
-	bestErr := uint64(math.MaxUint64)
+	wR := float64(channelWeight[0])
+	wG := float64(channelWeight[1])
+	wB := float64(channelWeight[2])
+	wA := float64(channelWeight[3])
+	rgbmScale64 := float64(rgbmScale)
+
+	bestErr := math.Inf(1)
 	var bestMode blockModeDesc
 	bestPartitionCount := 0
 	bestPartitionIndex := 0
@@ -847,7 +942,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 				continue
 			}
 
-			colorIntCount := partitionCount * 8
+			colorIntCount := partitionCount * endpointStride
 			qLevel := quantLevelForISE(colorIntCount, bitsAvailable)
 			if qLevel < int(quant6) {
 				continue
@@ -890,7 +985,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 			if partitionCount == 1 {
 				idxListArr[0] = 0
 				idxList = idxListArr[:]
-			} else if candidateCount > 0 {
+			} else if candidateCount > 0 && !normalMap && tuneOverride == nil {
 				idxList = candidates[:candidateCount]
 			}
 
@@ -906,7 +1001,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 				}
 
 				// Slices into scratch buffers. These buffers may swap when a new best candidate is found.
-				endpointPquant := currEndpointPquantBuf[:partitionCount*8]
+				endpointPquant := currEndpointPquantBuf[:partitionCount*endpointStride]
 				weightPquant := currWeightPquantBuf[:realWeightCount]
 
 				var assign []uint8
@@ -922,6 +1017,11 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 				var maxA [4]int
 				var minIdx [4]int
 				var maxIdx [4]int
+				var sumX [4]float64
+				var sumY [4]float64
+				var sumXX [4]float64
+				var sumYY [4]float64
+				var sumXY [4]float64
 
 				if assign == nil {
 					// partitionCount == 1
@@ -937,6 +1037,16 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 						count[0]++
 						l := texelLuma[t]
 						ai := texelAlpha[t]
+						if normalMap {
+							off := t * 4
+							x := float64(texels[off+0])
+							y := float64(texels[off+3])
+							sumX[0] += x
+							sumY[0] += y
+							sumXX[0] += x * x
+							sumYY[0] += y * y
+							sumXY[0] += x * y
+						}
 						if l < minL[0] || (l == minL[0] && ai < minA[0]) {
 							minL[0] = l
 							minA[0] = ai
@@ -965,6 +1075,16 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 
 						l := texelLuma[t]
 						ai := texelAlpha[t]
+						if normalMap {
+							off := t * 4
+							x := float64(texels[off+0])
+							y := float64(texels[off+3])
+							sumX[part] += x
+							sumY[part] += y
+							sumXX[part] += x * x
+							sumYY[part] += y * y
+							sumXY[part] += x * y
+						}
 						if l < minL[part] || (l == minL[part] && ai < minA[part]) {
 							minL[part] = l
 							minA[part] = ai
@@ -991,25 +1111,100 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 					}
 				}
 
+				if normalMap {
+					// Use a simple 2D PCA on (R, A) to pick endpoints for the L+A line. This better matches
+					// reference behavior for ASTCENC_FLG_MAP_NORMAL than luma-only endpoint selection.
+					var meanX [4]float64
+					var meanY [4]float64
+					var dirX [4]float64
+					var dirY [4]float64
+
+					for p := 0; p < partitionCount; p++ {
+						n := float64(count[p])
+						if n <= 0 {
+							continue
+						}
+
+						mx := sumX[p] / n
+						my := sumY[p] / n
+						meanX[p] = mx
+						meanY[p] = my
+
+						// Covariance matrix of centered data.
+						cov00 := sumXX[p]/n - mx*mx
+						cov11 := sumYY[p]/n - my*my
+						cov01 := sumXY[p]/n - mx*my
+
+						// Principal axis direction for 2x2 covariance.
+						dx, dy := 1.0, 0.0
+						if cov01 != 0 || cov00 != cov11 {
+							theta := 0.5 * math.Atan2(2*cov01, cov00-cov11)
+							dx = math.Cos(theta)
+							dy = math.Sin(theta)
+						} else if cov11 > cov00 {
+							dx, dy = 0.0, 1.0
+						}
+						dirX[p] = dx
+						dirY[p] = dy
+					}
+
+					minProj := [4]float64{math.Inf(1), math.Inf(1), math.Inf(1), math.Inf(1)}
+					maxProj := [4]float64{math.Inf(-1), math.Inf(-1), math.Inf(-1), math.Inf(-1)}
+					for t := 0; t < texelCount; t++ {
+						part := 0
+						if assign != nil {
+							part = int(assign[t])
+						}
+						off := t * 4
+						x := float64(texels[off+0]) - meanX[part]
+						y := float64(texels[off+3]) - meanY[part]
+						proj := x*dirX[part] + y*dirY[part]
+						if proj < minProj[part] {
+							minProj[part] = proj
+							minIdx[part] = t
+						}
+						if proj > maxProj[part] {
+							maxProj[part] = proj
+							maxIdx[part] = t
+						}
+					}
+				}
+
 				for p := 0; p < partitionCount; p++ {
 					off0 := minIdx[p] * 4
 					off1 := maxIdx[p] * 4
-					ep := quantizeEndpointsRGBABytes(
-						colorQuant,
-						texels[off0+0], texels[off0+1], texels[off0+2], texels[off0+3],
-						texels[off1+0], texels[off1+1], texels[off1+2], texels[off1+3],
-					)
+					var ep partitionEndpointsRGBA
+					if normalMap {
+						lum0 := texels[off0+0]
+						lum1 := texels[off1+0]
+						a0 := texels[off0+3]
+						a1 := texels[off1+3]
+						ep = quantizeEndpointsRGBABytes(colorQuant, lum0, lum0, lum0, a0, lum1, lum1, lum1, a1)
+					} else {
+						ep = quantizeEndpointsRGBABytes(
+							colorQuant,
+							texels[off0+0], texels[off0+1], texels[off0+2], texels[off0+3],
+							texels[off1+0], texels[off1+1], texels[off1+2], texels[off1+3],
+						)
+					}
 					endpoints[p] = ep
-					base := p * 8
+					base := p * endpointStride
 					pp := ep.pquant
-					endpointPquant[base+0] = pp[0]
-					endpointPquant[base+1] = pp[1]
-					endpointPquant[base+2] = pp[2]
-					endpointPquant[base+3] = pp[3]
-					endpointPquant[base+4] = pp[4]
-					endpointPquant[base+5] = pp[5]
-					endpointPquant[base+6] = pp[6]
-					endpointPquant[base+7] = pp[7]
+					if normalMap {
+						endpointPquant[base+0] = pp[0]
+						endpointPquant[base+1] = pp[1]
+						endpointPquant[base+2] = pp[6]
+						endpointPquant[base+3] = pp[7]
+					} else {
+						endpointPquant[base+0] = pp[0]
+						endpointPquant[base+1] = pp[1]
+						endpointPquant[base+2] = pp[2]
+						endpointPquant[base+3] = pp[3]
+						endpointPquant[base+4] = pp[4]
+						endpointPquant[base+5] = pp[5]
+						endpointPquant[base+6] = pp[6]
+						endpointPquant[base+7] = pp[7]
+					}
 				}
 
 				plane2Component := -1
@@ -1255,7 +1450,10 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 						weightsUQ[i+weightsPlane2Offset] = uqMap[p2]
 					}
 				} else {
-					if useFloatWeights {
+					useWeightedProjection := !(channelWeight[0] == 1 && channelWeight[1] == 1 && channelWeight[2] == 1 && channelWeight[3] == 1)
+					useFloatProjection := useFloatWeights || useWeightedProjection
+
+					if useFloatProjection {
 						switch partitionCount {
 						case 1:
 							e0u := endpoints[0].e0
@@ -1265,7 +1463,14 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 							d1 := float32(int(e1u[1]) - int(e0u[1]))
 							d2 := float32(int(e1u[2]) - int(e0u[2]))
 							d3 := float32(int(e1u[3]) - int(e0u[3]))
-							den := d0*d0 + d1*d1 + d2*d2 + d3*d3
+							w0 := channelWeight[0]
+							w1 := channelWeight[1]
+							w2 := channelWeight[2]
+							w3 := channelWeight[3]
+							if !useWeightedProjection {
+								w0, w1, w2, w3 = 1, 1, 1, 1
+							}
+							den := d0*d0*w0 + d1*d1*w1 + d2*d2*w2 + d3*d3*w3
 							if den <= 0 {
 								for t := 0; t < texelCount; t++ {
 									texelWeights[t] = 0
@@ -1284,7 +1489,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								c1 := float32(texels[off+1]) - e01
 								c2 := float32(texels[off+2]) - e02
 								c3 := float32(texels[off+3]) - e03
-								w := (c0*d0 + c1*d1 + c2*d2 + c3*d3) * invDen
+								w := (c0*d0*w0 + c1*d1*w1 + c2*d2*w2 + c3*d3*w3) * invDen
 								if w <= 0 {
 									texelWeights[t] = 0
 								} else if w >= 64 {
@@ -1303,7 +1508,14 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 							d01 := float32(int(e10[1]) - int(e00[1]))
 							d02 := float32(int(e10[2]) - int(e00[2]))
 							d03 := float32(int(e10[3]) - int(e00[3]))
-							den0 := d00*d00 + d01*d01 + d02*d02 + d03*d03
+							w0 := channelWeight[0]
+							w1 := channelWeight[1]
+							w2 := channelWeight[2]
+							w3 := channelWeight[3]
+							if !useWeightedProjection {
+								w0, w1, w2, w3 = 1, 1, 1, 1
+							}
+							den0 := d00*d00*w0 + d01*d01*w1 + d02*d02*w2 + d03*d03*w3
 							invDen0 := float32(0)
 							if den0 > 0 {
 								invDen0 = float32(64) / den0
@@ -1317,7 +1529,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 							d11 := float32(int(e11[1]) - int(e01[1]))
 							d12 := float32(int(e11[2]) - int(e01[2]))
 							d13 := float32(int(e11[3]) - int(e01[3]))
-							den1 := d10*d10 + d11*d11 + d12*d12 + d13*d13
+							den1 := d10*d10*w0 + d11*d11*w1 + d12*d12*w2 + d13*d13*w3
 							invDen1 := float32(0)
 							if den1 > 0 {
 								invDen1 = float32(64) / den1
@@ -1338,7 +1550,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 									c1 := float32(texels[off+1]) - e0r01
 									c2 := float32(texels[off+2]) - e0r02
 									c3 := float32(texels[off+3]) - e0r03
-									w := (c0*d00 + c1*d01 + c2*d02 + c3*d03) * invDen0
+									w := (c0*d00*w0 + c1*d01*w1 + c2*d02*w2 + c3*d03*w3) * invDen0
 									if w <= 0 {
 										texelWeights[t] = 0
 									} else if w >= 64 {
@@ -1355,7 +1567,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 									c1 := float32(texels[off+1]) - e0r11
 									c2 := float32(texels[off+2]) - e0r12
 									c3 := float32(texels[off+3]) - e0r13
-									w := (c0*d10 + c1*d11 + c2*d12 + c3*d13) * invDen1
+									w := (c0*d10*w0 + c1*d11*w1 + c2*d12*w2 + c3*d13*w3) * invDen1
 									if w <= 0 {
 										texelWeights[t] = 0
 									} else if w >= 64 {
@@ -1369,6 +1581,13 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 							var e0v [4][4]float32
 							var dv [4][4]float32
 							var invDen [4]float32
+							w0 := channelWeight[0]
+							w1 := channelWeight[1]
+							w2 := channelWeight[2]
+							w3 := channelWeight[3]
+							if !useWeightedProjection {
+								w0, w1, w2, w3 = 1, 1, 1, 1
+							}
 
 							for p := 0; p < partitionCount; p++ {
 								e0u := endpoints[p].e0
@@ -1378,7 +1597,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								d1 := float32(int(e1u[1]) - int(e0u[1]))
 								d2 := float32(int(e1u[2]) - int(e0u[2]))
 								d3 := float32(int(e1u[3]) - int(e0u[3]))
-								den := d0*d0 + d1*d1 + d2*d2 + d3*d3
+								den := d0*d0*w0 + d1*d1*w1 + d2*d2*w2 + d3*d3*w3
 								if den > 0 {
 									invDen[p] = float32(64) / den
 								} else {
@@ -1407,7 +1626,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								c1 := float32(texels[off+1]) - e0v[part][1]
 								c2 := float32(texels[off+2]) - e0v[part][2]
 								c3 := float32(texels[off+3]) - e0v[part][3]
-								w := (c0*dv[part][0] + c1*dv[part][1] + c2*dv[part][2] + c3*dv[part][3]) * id
+								w := (c0*dv[part][0]*w0 + c1*dv[part][1]*w1 + c2*dv[part][2]*w2 + c3*dv[part][3]*w3) * id
 								if w <= 0 {
 									texelWeights[t] = 0
 								} else if w >= 64 {
@@ -1595,7 +1814,7 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 					evalEpd[p][3] = e1a - e0a
 				}
 
-				var errv uint64
+				var errv float64
 				if !mode.isDualPlane {
 					if assign == nil {
 						e0 := evalEp0[0]
@@ -1605,16 +1824,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								w1 := int32(weightsUQ[t])
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w1 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w1 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1632,16 +1905,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w1 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w1 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1658,16 +1985,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								d := evalEpd[part]
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w1 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w1 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1688,16 +2069,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								d := evalEpd[part]
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w1 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w1 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1717,16 +2152,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w2 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w2 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1751,16 +2240,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w2 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w2 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1778,16 +2321,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								d := evalEpd[part]
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w2 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w2 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1815,16 +2412,70 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 								d := evalEpd[part]
 								off := t * 4
 
-								r8 := uint8((e0[0] + ((d[0]*w1 + 32) >> 6)) >> 8)
-								g8 := uint8((e0[1] + ((d[1]*w1 + 32) >> 6)) >> 8)
-								b8 := uint8((e0[2] + ((d[2]*w1 + 32) >> 6)) >> 8)
-								a8 := uint8((e0[3] + ((d[3]*w2 + 32) >> 6)) >> 8)
+								r16 := e0[0] + ((d[0]*w1 + 32) >> 6)
+								g16 := e0[1] + ((d[1]*w1 + 32) >> 6)
+								b16 := e0[2] + ((d[2]*w1 + 32) >> 6)
+								a16 := e0[3] + ((d[3]*w2 + 32) >> 6)
+								if useU8 {
+									r16 = u16ToU8ReplicatedI32(r16)
+									g16 = u16ToU8ReplicatedI32(g16)
+									b16 = u16ToU8ReplicatedI32(b16)
+									a16 = u16ToU8ReplicatedI32(a16)
+								}
+								if normalMap {
+									r8 := uint8(r16 >> 8)
+									a8 := uint8(a16 >> 8)
+									errv += normalMapAngularError(texels[off+0], texels[off+3], r8, a8)
+								} else if rgbmMap {
+									if a16 == 0 {
+										errv = math.Inf(1)
+										break
+									}
 
-								dr := int32(texels[off+0]) - int32(r8)
-								dg := int32(texels[off+1]) - int32(g8)
-								db := int32(texels[off+2]) - int32(b8)
-								da := int32(texels[off+3]) - int32(a8)
-								errv += uint64(dr*dr) + uint64(dg*dg) + uint64(db*db) + uint64(da*da)
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									srcR := float64(srcR16) * float64(srcA16) * rgbmScale64
+									srcG := float64(srcG16) * float64(srcA16) * rgbmScale64
+									srcB := float64(srcB16) * float64(srcA16) * rgbmScale64
+									decR := float64(r16) * float64(a16) * rgbmScale64
+									decG := float64(g16) * float64(a16) * rgbmScale64
+									decB := float64(b16) * float64(a16) * rgbmScale64
+
+									errR := math.Abs(srcR - decR)
+									errG := math.Abs(srcG - decG)
+									errB := math.Abs(srcB - decB)
+
+									if errR > 1e15 {
+										errR = 1e15
+									}
+									if errG > 1e15 {
+										errG = 1e15
+									}
+									if errB > 1e15 {
+										errB = 1e15
+									}
+
+									errTex := wR*errR*errR + wG*errG*errG + wB*errB*errB
+									if errTex > 1e30 {
+										errTex = 1e30
+									}
+									errv += errTex
+								} else {
+									srcR16 := u8ToU16ReplicatedI32(texels[off+0])
+									srcG16 := u8ToU16ReplicatedI32(texels[off+1])
+									srcB16 := u8ToU16ReplicatedI32(texels[off+2])
+									srcA16 := u8ToU16ReplicatedI32(texels[off+3])
+
+									dr := float64(srcR16 - r16)
+									dg := float64(srcG16 - g16)
+									db := float64(srcB16 - b16)
+									da := float64(srcA16 - a16)
+
+									errv += wR*dr*dr + wG*dg*dg + wB*db*db + wA*da*da
+								}
 
 								if errv >= bestErr {
 									break
@@ -1841,13 +2492,13 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 					bestPartitionIndex = partitionIndex
 					bestPlane2Component = plane2Component
 					bestColorQuant = colorQuant
-					bestEndpointLen = partitionCount * 8
+					bestEndpointLen = partitionCount * endpointStride
 					bestWeightLen = realWeightCount
 					currEndpointPquantBuf, bestEndpointPquantBuf = bestEndpointPquantBuf, currEndpointPquantBuf
 					currWeightPquantBuf, bestWeightPquantBuf = bestWeightPquantBuf, currWeightPquantBuf
 
 					if bestErr == 0 {
-						block, err := buildPhysicalBlockRGBA(bestMode, blockX, blockY, blockZ, bestPartitionCount, bestPartitionIndex, bestPlane2Component, bestColorQuant, bestEndpointPquantBuf[:bestEndpointLen], bestWeightPquantBuf[:bestWeightLen])
+						block, err := buildPhysicalBlock(bestMode, blockX, blockY, blockZ, bestPartitionCount, bestPartitionIndex, bestPlane2Component, endpointFormat, bestColorQuant, bestEndpointPquantBuf[:bestEndpointLen], bestWeightPquantBuf[:bestWeightLen])
 						if err != nil {
 							break
 						}
@@ -1858,12 +2509,12 @@ func encodeBlockRGBA8LDR(profile Profile, blockX, blockY, blockZ int, texels []b
 		}
 	}
 
-	if bestErr == uint64(math.MaxUint64) {
+	if math.IsInf(bestErr, 1) {
 		// Fallback: constant average.
 		r, g, b, a := avgBlockRGBA8(texels, blockX, blockY*blockZ, 0, 0, blockX, blockY*blockZ)
 		return EncodeConstBlockRGBA8(r, g, b, a), nil
 	}
-	block, err := buildPhysicalBlockRGBA(bestMode, blockX, blockY, blockZ, bestPartitionCount, bestPartitionIndex, bestPlane2Component, bestColorQuant, bestEndpointPquantBuf[:bestEndpointLen], bestWeightPquantBuf[:bestWeightLen])
+	block, err := buildPhysicalBlock(bestMode, blockX, blockY, blockZ, bestPartitionCount, bestPartitionIndex, bestPlane2Component, endpointFormat, bestColorQuant, bestEndpointPquantBuf[:bestEndpointLen], bestWeightPquantBuf[:bestWeightLen])
 	if err != nil {
 		r, g, b, a := avgBlockRGBA8(texels, blockX, blockY*blockZ, 0, 0, blockX, blockY*blockZ)
 		return EncodeConstBlockRGBA8(r, g, b, a), nil
@@ -1876,4 +2527,23 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func u8ToU16ReplicatedI32(v uint8) int32 {
+	return int32(v) * 257
+}
+
+func clampU16I32(v int32) int32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 0xFFFF {
+		return 0xFFFF
+	}
+	return v
+}
+
+func u16ToU8ReplicatedI32(v int32) int32 {
+	v = clampU16I32(v)
+	return (v >> 8) * 257
 }

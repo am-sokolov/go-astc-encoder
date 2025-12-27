@@ -109,7 +109,7 @@ func EncodeRGBA8WithProfileAndQuality(pix []byte, width, height int, blockX, blo
 		for by := 0; by < blocksY; by++ {
 			for bx := 0; bx < blocksX; bx++ {
 				extractBlockRGBA8(pix, width, height, bx*blockX, by*blockY, blockX, blockY, blockTexels)
-				block, err := encodeBlockRGBA8LDR(profile, blockX, blockY, 1, blockTexels, quality)
+				block, err := encodeBlockRGBA8LDR(profile, blockX, blockY, 1, blockTexels, quality, [4]float32{1, 1, 1, 1}, 0, 1, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -143,7 +143,7 @@ func EncodeRGBA8WithProfileAndQuality(pix []byte, width, height int, blockX, blo
 				bx := idx % blocksX
 				by := idx / blocksX
 				extractBlockRGBA8(pix, width, height, bx*blockX, by*blockY, blockX, blockY, blockTexels)
-				block, err := encodeBlockRGBA8LDR(profile, blockX, blockY, 1, blockTexels, quality)
+				block, err := encodeBlockRGBA8LDR(profile, blockX, blockY, 1, blockTexels, quality, [4]float32{1, 1, 1, 1}, 0, 1, nil)
 				if err != nil {
 					errOnce.Do(func() {
 						firstErr = err

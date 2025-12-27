@@ -8,6 +8,21 @@ type encoderTuning struct {
 	dualPlaneCorrelationThreshold float32
 }
 
+func encoderTuningFromConfig(cfg Config) encoderTuning {
+	t := encoderTuning{
+		modeLimit:                     int(cfg.TuneBlockModeLimit),
+		maxPartitionCount:             int(cfg.TunePartitionCountLimit),
+		dualPlaneCorrelationThreshold: cfg.Tune2PlaneEarlyOutLimitCorrelation,
+	}
+	t.partitionIndexLimit[2] = int(cfg.Tune2PartitionIndexLimit)
+	t.partitionIndexLimit[3] = int(cfg.Tune3PartitionIndexLimit)
+	t.partitionIndexLimit[4] = int(cfg.Tune4PartitionIndexLimit)
+	t.partitionCandidateLimit[2] = int(cfg.Tune2PartitioningCandidateLimit)
+	t.partitionCandidateLimit[3] = int(cfg.Tune3PartitioningCandidateLimit)
+	t.partitionCandidateLimit[4] = int(cfg.Tune4PartitioningCandidateLimit)
+	return t
+}
+
 func encoderTuningFor(quality EncodeQuality, texelCount int) encoderTuning {
 	// Keep existing preset behavior for fastest/fast/medium to preserve regression fixtures.
 	switch quality {
