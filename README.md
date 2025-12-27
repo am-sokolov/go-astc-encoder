@@ -1,5 +1,8 @@
 # go-astc-encoder
 
+This repository is based on the upstream Arm ASTC encoder (`astcenc`) project:
+`https://github.com/ARM-software/astc-encoder`.
+
 This is a Go-focused source package containing:
 
 - A **pure-Go** ASTC (`.astc`) encoder/decoder library (`astc/`).
@@ -55,12 +58,12 @@ CGO_ENABLED=1 go run -tags astcenc_native ./cmd/astcencgo -decode -impl native -
 
 ## Using as a Go package
 
-Module path: `github.com/arm-software/astc-encoder`
+Module path: `https://github.com/am-sokolov/go-astc-encoder`
 
 Minimal example (encode RGBA8, then decode):
 
 ```go
-import "github.com/arm-software/astc-encoder/astc"
+import "https://github.com/am-sokolov/go-astc-encoder/astc"
 
 astcData, err := astc.EncodeRGBA8WithProfileAndQuality(rgbaPix, w, h, 6, 6, astc.ProfileLDR, astc.EncodeMedium)
 pix, w, h, err := astc.DecodeRGBA8WithProfile(astcData, astc.ProfileLDR)
@@ -69,7 +72,7 @@ pix, w, h, err := astc.DecodeRGBA8WithProfile(astcData, astc.ProfileLDR)
 If you want the upstream C++ reference implementation via CGO:
 
 ```go
-import "github.com/arm-software/astc-encoder/astc/native"
+import "https://github.com/am-sokolov/go-astc-encoder/astc/native"
 ```
 
 Build with `-tags astcenc_native` and `CGO_ENABLED=1`.
@@ -448,3 +451,7 @@ HDR RGB + LDR alpha example (float output):
 GOMAXPROCS=1 ./astcbenchgo        decode -in /tmp/bench_hdr_rgb_ldr_a.astc -profile hdr-rgb-ldr-a -iters 200 -out f32 -checksum none
 GOMAXPROCS=1 ./astcbenchgo_native decode -in /tmp/bench_hdr_rgb_ldr_a.astc -profile hdr-rgb-ldr-a -iters 200 -out f32 -checksum none -impl native
 ```
+
+## Acknowledgments
+
+- Based on Arm's ASTC Encoder (`astcenc`) reference implementation: `https://github.com/ARM-software/astc-encoder`.
