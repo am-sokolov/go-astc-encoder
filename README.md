@@ -125,7 +125,7 @@ Example: encode RGBA8 to ASTC:
 ```go
 astcData, err := astc.EncodeRGBA8WithProfileAndQuality(rgbaPix, w, h, 6, 6, astc.ProfileLDR, astc.EncodeMedium)
 if err != nil { /* ... */ }
-```co
+```
 
 Notes:
 - For true HDR source encoding (values outside `[0,1]`) use the RGBAF32 encode APIs below.
