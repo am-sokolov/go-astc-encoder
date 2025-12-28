@@ -20,7 +20,7 @@ lib
 Binaries
 
 # Build artifacts
-astcenc
+#astcenc
 build*
 
 # General build artifacts
@@ -44,8 +44,6 @@ TestOutput
 /*.exr
 /*.astc
 astc_reference-main*
-Docs/Profiling.md
-Source/astcenccli_version.h
 
 # Do not ignore workflows
 !.github/workflows/
